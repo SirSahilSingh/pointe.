@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>pointe</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
+    <script type="text/javascript" src="/eel.js"></script>
+</head>
+
+<body>
+
+    <!-- ═══════ TUTORIAL OVERLAY ═══════ -->
+    <div id="tutorial-overlay" class="overlay" style="opacity:0; pointer-events:none;">
+        <div class="wizard-card">
+            <div class="wizard-icon" id="wizard-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                </svg>
+            </div>
+            <h2 class="wizard-title" id="tut-title">System Calibration</h2>
+            <p class="wizard-desc" id="tut-desc">Position your face in front of the camera with a neutral expression.
+                The scanner will map your facial topology for personalized gesture detection.</p>
+
+            <div class="wizard-preview">
+                <img id="tut-video-feed" src="" alt="">
+                <span class="preview-label">LIVE</span>
+            </div>
+
+            <div class="wizard-progress" id="tut-progress-container">
+                <div class="progress-track">
+                    <div class="progress-fill" id="tut-progress-fill"></div>
+                </div>
+                <span class="progress-label" id="tut-count">0 / 3</span>
+            </div>
+            <button id="tut-btn" class="btn btn-primary" onclick="startTutorial()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M12 2a10 10 0 1 0 10 10" />
+                    <path d="M12 12l4-4" />
+                    <circle cx="12" cy="12" r="1" />
+                </svg>
+                Initialize Scanner
+            </button>
+            <button class="btn btn-ghost" onclick="skipTutorial()" style="margin-top:4px;">
+                Skip
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══════ APP SHELL ═══════ -->
+    <div class="app-shell">
+
+        <!-- LEFT SIDEBAR — FIXED -->
+        <aside class="sidebar">
+            <!-- FIXED TOP: Logo + Camera -->
+            <div class="sidebar-fixed">
+                <div class="brand-area">
+                    <img class="brand-logo" src="logo.png" alt="pointe">
+                </div>
+
+                <div class="camera-module">
+                    <div class="module-header">
+                        <span class="module-label">FEED</span>
+                        <span class="live-badge">
+                            <span class="live-dot"></span>
+                            LIVE
+                        </span>
+                    </div>
+                    <div class="video-container" style="position:relative;">
+                        <img id="video-feed" src="" alt="">
+                        <span class="cam-placeholder" id="cam-placeholder">AWAITING SIGNAL...</span>
+                        <div class="camera-warning" id="camera-warning" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCROLLABLE TELEMETRY -->
+            <div class="telemetry-scroll">
+                <div class="telem-section">
+                    <div class="telem-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        DETECTION
+                    </div>
+                    <div class="telem-row">
+                        <span class="telem-label">Face</span>
+                        <span class="telem-value" id="telem-face">NO FACE</span>
+                    </div>
+                </div>
+
+                <div class="telem-section">
+                    <div class="telem-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="4" width="16" height="16" rx="2" />
+                            <rect x="9" y="9" width="6" height="6" />
+                            <line x1="9" y1="1" x2="9" y2="4" />
+                            <line x1="15" y1="1" x2="15" y2="4" />
+                            <line x1="9" y1="20" x2="9" y2="23" />
+                            <line x1="15" y1="20" x2="15" y2="23" />
+                            <line x1="20" y1="9" x2="23" y2="9" />
+                            <line x1="20" y1="14" x2="23" y2="14" />
+                            <line x1="1" y1="9" x2="4" y2="9" />
+                            <line x1="1" y1="14" x2="4" y2="14" />
+                        </svg>
+                        PIPELINE
+                    </div>
+                    <div class="telem-row">
+                        <span class="telem-label">FPS</span>
+                        <span class="telem-value" id="cam-fps">0</span>
+                    </div>
+                    <div class="telem-row">
+                        <span class="telem-label">Signal</span>
+                        <span class="telem-value signal-bars">
+                            <span class="signal-bar"></span>
+                            <span class="signal-bar"></span>
+                            <span class="signal-bar"></span>
+                            <span class="signal-bar"></span>
+                        </span>
+                    </div>
+                    <div class="telem-row">
+                        <span class="telem-label">Resolution</span>
+                        <span class="telem-value" id="cam-res">1280×720</span>
+                    </div>
+                </div>
+
+                <div class="telem-section">
+                    <div class="telem-header">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        SYSTEM
+                    </div>
+                    <div class="telem-row">
+                        <span class="telem-label">Engine</span>
+                        <span class="telem-value" id="telem-engine">STANDBY</span>
+                    </div>
+                    <div class="telem-row">
+                        <span class="telem-label">Platform</span>
+                        <span class="telem-value" id="telem-platform">WIN</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-actions">
+                <button class="btn btn-ghost" onclick="openGestureTutorial()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    TUTORIAL
+                </button>
+                <button id="btn-launch" class="btn btn-primary" onclick="toggleEngine()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                    LAUNCH ENGINE
+                </button>
+            </div>
+        </aside>
+
+        <!-- RIGHT — MAIN AREA -->
+        <div class="main-area">
+
+            <!-- Nav Bar -->
+            <nav class="nav-bar">
+                <div class="nav-tabs">
+                    <button class="nav-tab active" data-page="dashboard"
+                        onclick="switchPage('dashboard')">Dashboard</button>
+                    <button class="nav-tab" data-page="settings" onclick="switchPage('settings')">Settings</button>
+                    <button class="nav-tab" data-page="shortcuts" onclick="switchPage('shortcuts')">Shortcuts</button>
+                </div>
+                <div class="nav-status">
+                    <span class="nav-status-dot" id="cam-status-dot"></span>
+                    <span id="cam-status-text">Active</span>
+                </div>
+            </nav>
+
+            <!-- Scrollable Content -->
+            <div class="content-scroll">
+
+                <!-- ═══════ DASHBOARD ═══════ -->
+                <div class="page active" id="page-dashboard">
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">System overview and current configuration at a glance.</p>
+
+                    <div class="dashboard-grid">
+                        <div class="stats-row">
+                            <!-- Engine Status -->
+                            <div class="glass-card stat-card">
+                                <div class="card-header">
+                                    <span class="card-title">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <polyline points="12 6 12 12 16 14" />
+                                        </svg>
+                                        Engine Status
+                                    </span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Calibration</span>
+                                    <span class="stat-value" id="stat-calibration">Pending</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Tracking</span>
+                                    <span class="stat-value live" id="stat-tracking">Ready</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Sensitivity X</span>
+                                    <span class="stat-value accent" id="stat-sx">2.50</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Sensitivity Y</span>
+                                    <span class="stat-value accent" id="stat-sy">2.50</span>
+                                </div>
+                            </div>
+
+                            <!-- Gesture Mapping -->
+                            <div class="glass-card stat-card">
+                                <div class="card-header">
+                                    <span class="card-title">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M18 8h1a4 4 0 0 1 0 8h-1" />
+                                            <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" />
+                                            <line x1="6" y1="1" x2="6" y2="4" />
+                                            <line x1="10" y1="1" x2="10" y2="4" />
+                                            <line x1="14" y1="1" x2="14" y2="4" />
+                                        </svg>
+                                        Gesture Mapping
+                                    </span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Left Click</span>
+                                    <span class="stat-value beige" id="stat-lclick">Left Wink</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Right Click</span>
+                                    <span class="stat-value beige" id="stat-rclick">Right Wink</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Double Click</span>
+                                    <span class="stat-value beige" id="stat-dclick">Pucker</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Media Play/Pause</span>
+                                    <span class="stat-value beige" id="stat-media">Open Palm</span>
+                                </div>
+                                <div class="stat-row">
+                                    <span class="stat-label">Drag & Drop</span>
+                                    <span class="stat-value beige" id="stat-drag">Jaw Drop</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sensitivity Profiles -->
+                        <div class="section-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 20V10" />
+                                <path d="M18 20V4" />
+                                <path d="M6 20v-4" />
+                            </svg>
+                            Sensitivity Profiles
+                        </div>
+                        <div class="presets-row">
+                            <button class="preset-card" onclick="applyPreset('browsing')">
+                                <div class="preset-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="2" y1="12" x2="22" y2="12" />
+                                        <path
+                                            d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                                    </svg>
+                                </div>
+                                <div class="preset-body">
+                                    <div class="preset-info">
+                                        <span class="preset-name">Browsing</span>
+                                        <span class="preset-detail">X 2.00 · Y 2.00</span>
+                                    </div>
+                                    <span class="preset-desc">Smooth, relaxed cursor for everyday use</span>
+                                </div>
+                            </button>
+                            <button class="preset-card" onclick="applyPreset('gaming')">
+                                <div class="preset-icon gaming">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                                    </svg>
+                                </div>
+                                <div class="preset-body">
+                                    <div class="preset-info">
+                                        <span class="preset-name">Gaming</span>
+                                        <span class="preset-detail">X 3.50 · Y 3.00</span>
+                                    </div>
+                                    <span class="preset-desc">Fast response for quick movements</span>
+                                </div>
+                            </button>
+                            <button class="preset-card" onclick="applyPreset('precision')">
+                                <div class="preset-icon precision">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <circle cx="12" cy="12" r="6" />
+                                        <circle cx="12" cy="12" r="2" />
+                                    </svg>
+                                </div>
+                                <div class="preset-body">
+                                    <div class="preset-info">
+                                        <span class="preset-name">Precision</span>
+                                        <span class="preset-detail">X 1.20 · Y 1.20</span>
+                                    </div>
+                                    <span class="preset-desc">Fine control for detail work and design</span>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- Setup Tips -->
+                        <div class="section-label">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="12" y1="16" x2="12" y2="12" />
+                                <line x1="12" y1="8" x2="12.01" y2="8" />
+                            </svg>
+                            Setup Tips
+                        </div>
+                        <div class="tips-grid">
+                            <div class="tip-card">
+                                <div class="tip-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                                        <line x1="8" y1="21" x2="16" y2="21" />
+                                        <line x1="12" y1="17" x2="12" y2="21" />
+                                    </svg>
+                                </div>
+                                <div class="tip-content">
+                                    <span class="tip-title">Camera Position</span>
+                                    <span class="tip-text">Place camera at eye level, centered with your face. Avoid
+                                        extreme angles.</span>
+                                </div>
+                            </div>
+                            <div class="tip-card">
+                                <div class="tip-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="5" />
+                                        <line x1="12" y1="1" x2="12" y2="3" />
+                                        <line x1="12" y1="21" x2="12" y2="23" />
+                                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                                        <line x1="1" y1="12" x2="3" y2="12" />
+                                        <line x1="21" y1="12" x2="23" y2="12" />
+                                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                                    </svg>
+                                </div>
+                                <div class="tip-content">
+                                    <span class="tip-title">Lighting</span>
+                                    <span class="tip-text">Even, front-facing light works best. Avoid strong backlight
+                                        or side shadows.</span>
+                                </div>
+                            </div>
+                            <div class="tip-card">
+                                <div class="tip-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                    </svg>
+                                </div>
+                                <div class="tip-content">
+                                    <span class="tip-title">Distance</span>
+                                    <span class="tip-text">Sit 40–70 cm from the camera. Too close reduces tracking
+                                        range.</span>
+                                </div>
+                            </div>
+                            <div class="tip-card">
+                                <div class="tip-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </div>
+                                <div class="tip-content">
+                                    <span class="tip-title">Calibration</span>
+                                    <span class="tip-text">Recalibrate (Ctrl+C) after shifting your seating
+                                        position.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- System Info -->
+                        <div class="glass-card stat-card">
+                            <div class="card-header">
+                                <span class="card-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+                                        <rect x="9" y="9" width="6" height="6" />
+                                        <line x1="9" y1="1" x2="9" y2="4" />
+                                        <line x1="15" y1="1" x2="15" y2="4" />
+                                        <line x1="9" y1="20" x2="9" y2="23" />
+                                        <line x1="15" y1="20" x2="15" y2="23" />
+                                        <line x1="20" y1="9" x2="23" y2="9" />
+                                        <line x1="20" y1="14" x2="23" y2="14" />
+                                        <line x1="1" y1="9" x2="4" y2="9" />
+                                        <line x1="1" y1="14" x2="4" y2="14" />
+                                    </svg>
+                                    System
+                                </span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Camera Resolution</span>
+                                <span class="stat-value" id="stat-cam-res">1280 × 720</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Platform</span>
+                                <span class="stat-value" id="stat-platform">Windows</span>
+                            </div>
+                            <div class="stat-row">
+                                <span class="stat-label">Engine Version</span>
+                                <span class="stat-value accent" id="stat-version">v1.0.0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ═══════ SETTINGS ═══════ -->
+                <div class="page" id="page-settings">
+                    <h1 class="page-title">Configuration</h1>
+                    <p class="page-subtitle">Fine-tune motion dynamics and gesture routing.</p>
+
+                    <div class="settings-layout">
+                        <!-- Motion Dynamics -->
+                        <div class="settings-section">
+                            <div class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="3" />
+                                    <path
+                                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                                </svg>
+                                Motion Dynamics
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label-row">
+                                    <span class="control-name">X-Axis Multiplier</span>
+                                    <span class="control-value" id="val-x">2.50</span>
+                                </div>
+                                <input type="range" id="sens-x" min="0.5" max="6.0" step="0.1" value="2.5">
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label-row">
+                                    <span class="control-name">Y-Axis Multiplier</span>
+                                    <span class="control-value" id="val-y">2.50</span>
+                                </div>
+                                <input type="range" id="sens-y" min="0.5" max="6.0" step="0.1" value="2.5">
+                            </div>
+                        </div>
+
+                        <!-- Input Routing -->
+                        <div class="settings-section">
+                            <div class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <circle cx="12" cy="12" r="6" />
+                                    <circle cx="12" cy="12" r="2" />
+                                </svg>
+                                Input Routing
+                            </div>
+                            <div class="dropdown-group">
+                                <label class="dropdown-label">Left Click</label>
+                                <div class="custom-select-wrapper">
+                                    <select id="bind-lclick">
+                                        <option value="none">Disable</option>
+                                        <option value="left_wink" selected>Left Wink</option>
+                                        <option value="right_wink">Right Wink</option>
+                                        <option value="jaw_drop">Jaw Drop</option>
+                                        <option value="pucker">Pucker</option>
+                                        <option value="both_closed">Dual Blink</option>
+                                        <option value="open_palm">Open Palm</option>
+                                    </select>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6 9 12 15 18 9" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="dropdown-group">
+                                <label class="dropdown-label">Right Click</label>
+                                <div class="custom-select-wrapper">
+                                    <select id="bind-rclick">
+                                        <option value="none">Disable</option>
+                                        <option value="left_wink">Left Wink</option>
+                                        <option value="right_wink" selected>Right Wink</option>
+                                        <option value="jaw_drop">Jaw Drop</option>
+                                        <option value="pucker">Pucker</option>
+                                        <option value="both_closed">Dual Blink</option>
+                                        <option value="open_palm">Open Palm</option>
+                                    </select>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6 9 12 15 18 9" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="dropdown-group">
+                                <label class="dropdown-label">Double Click</label>
+                                <div class="custom-select-wrapper">
+                                    <select id="bind-dclick">
+                                        <option value="none">Disable</option>
+                                        <option value="left_wink">Left Wink</option>
+                                        <option value="right_wink">Right Wink</option>
+                                        <option value="jaw_drop">Jaw Drop</option>
+                                        <option value="pucker" selected>Pucker</option>
+                                        <option value="both_closed">Dual Blink</option>
+                                        <option value="open_palm">Open Palm</option>
+                                    </select>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6 9 12 15 18 9" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="dropdown-group">
+                                <label class="dropdown-label">Media Play / Pause</label>
+                                <div class="custom-select-wrapper">
+                                    <select id="bind-media">
+                                        <option value="none">Disable</option>
+                                        <option value="left_wink">Left Wink</option>
+                                        <option value="right_wink">Right Wink</option>
+                                        <option value="jaw_drop">Jaw Drop</option>
+                                        <option value="pucker">Pucker</option>
+                                        <option value="both_closed">Dual Blink</option>
+                                        <option value="open_palm" selected>Open Palm</option>
+                                    </select>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6 9 12 15 18 9" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="dropdown-group">
+                                <label class="dropdown-label">Drag & Drop Hold</label>
+                                <div class="custom-select-wrapper">
+                                    <select id="bind-drag">
+                                        <option value="none">Disable</option>
+                                        <option value="left_wink">Left Wink</option>
+                                        <option value="right_wink">Right Wink</option>
+                                        <option value="jaw_drop" selected>Jaw Drop</option>
+                                        <option value="pucker">Pucker</option>
+                                        <option value="both_closed">Dual Blink</option>
+                                        <option value="open_palm">Open Palm</option>
+                                    </select>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6 9 12 15 18 9" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Keyboard Input -->
+                        <div class="settings-section" id="section-keyboard-input">
+                            <div class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="2" y="4" width="20" height="16" rx="2" ry="2" />
+                                    <line x1="6" y1="8" x2="6.01" y2="8" />
+                                    <line x1="10" y1="8" x2="10.01" y2="8" />
+                                    <line x1="14" y1="8" x2="14.01" y2="8" />
+                                    <line x1="18" y1="8" x2="18.01" y2="8" />
+                                    <line x1="6" y1="12" x2="18" y2="12" />
+                                    <line x1="8" y1="16" x2="16" y2="16" />
+                                </svg>
+                                Keyboard Input
+                            </div>
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Pinch Copy / Paste</span>
+                                    <span class="toggle-desc">Pinch thumb + index to copy (Ctrl+C), unpinch for paste
+                                        (Ctrl+V)</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-pinch-cp" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Hand-Swap Window Switch</span>
+                                    <span class="toggle-desc">Swap hand direction (left→right or right→left) to switch
+                                        windows</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-hand-swap" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Toggles Section -->
+                        <div class="settings-section">
+                            <div class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="1" y="5" width="22" height="14" rx="7" ry="7" />
+                                    <circle cx="16" cy="12" r="3" />
+                                </svg>
+                                Feature Toggles
+                            </div>
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Mouse Control</span>
+                                    <span class="toggle-desc">Enable head-tracking mouse movement and face gesture
+                                        clicks</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-mouse-control" checked
+                                        onchange="toggleMouseControl()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Media Auto Play/Pause</span>
+                                    <span class="toggle-desc">Auto-pause media when no face detected</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-media-auto" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Scroll Mode</span>
+                                    <span class="toggle-desc">Head-tilt scrolling (gesture activates)</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-scroll" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="scroll-gesture-select" id="scroll-gesture-row">
+                                <div class="dropdown-group">
+                                    <label class="dropdown-label">Scroll Activation Gesture</label>
+                                    <div class="custom-select-wrapper">
+                                        <select id="bind-scroll">
+                                            <option value="none">Disable</option>
+                                            <option value="left_wink">Left Wink</option>
+                                            <option value="right_wink">Right Wink</option>
+                                            <option value="jaw_drop">Jaw Drop</option>
+                                            <option value="pucker">Pucker</option>
+                                            <option value="both_closed" selected>Dual Blink</option>
+                                            <option value="open_palm">Open Palm</option>
+                                        </select>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="6 9 12 15 18 9" />
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Security Section -->
+                        <div class="settings-section">
+                            <div class="section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                </svg>
+                                Security
+                            </div>
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Auto Lock Screen</span>
+                                    <span class="toggle-desc">Lock screen when no registered face is detected</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-face-lock" onchange="toggleFaceLock()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+
+                            <!-- Face Registration Panel (visible when Auto Lock ON) -->
+                            <div class="face-lock-panel" id="face-lock-panel" style="display:none;">
+                                <!-- Lock Timeout -->
+                                <div class="dropdown-group">
+                                    <label class="dropdown-label">Lock After</label>
+                                    <div class="custom-select-wrapper">
+                                        <select id="face-lock-timeout">
+                                            <option value="15">15 seconds</option>
+                                            <option value="30" selected>30 seconds</option>
+                                            <option value="60">1 minute</option>
+                                            <option value="300">5 minutes</option>
+                                        </select>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="6 9 12 15 18 9" />
+                                        </svg>
+                                    </div>
+                                </div>
+
+                                <!-- Registered Faces (text-based list) -->
+                                <div class="face-reg-section">
+                                    <div class="face-reg-header">
+                                        <span class="face-reg-title">Registered Faces</span>
+                                        <span class="face-reg-count" id="face-count">0 / 5</span>
+                                    </div>
+                                    <div class="face-list" id="face-list">
+                                        <!-- Face items populated by JS -->
+                                    </div>
+                                    <button class="btn btn-ghost face-reg-btn" id="btn-register-face"
+                                        onclick="openFaceScan()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path
+                                                d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                            <circle cx="12" cy="13" r="4" />
+                                        </svg>
+                                        Scan Face
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Face Scan Overlay (full-screen modal) -->
+                            <div class="face-scan-overlay" id="face-scan-overlay" style="display:none;">
+                                <div class="face-scan-card">
+                                    <div class="scan-header">
+                                        <h2 class="scan-title">Face Registration</h2>
+                                        <p class="scan-subtitle" id="scan-instruction">Position your face in the center
+                                            of the frame</p>
+                                    </div>
+                                    <div class="scan-viewport">
+                                        <img id="scan-video-feed" src="" alt="">
+                                        <div class="scan-crosshair">
+                                            <div class="crosshair-ring"></div>
+                                            <div class="crosshair-line crosshair-h"></div>
+                                            <div class="crosshair-line crosshair-v"></div>
+                                        </div>
+                                        <div class="scan-direction" id="scan-direction">
+                                            <svg id="scan-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                                style="display:none;">
+                                                <line x1="12" y1="19" x2="12" y2="5" />
+                                                <polyline points="5 12 12 5 19 12" />
+                                            </svg>
+                                        </div>
+                                        <span class="scan-live-badge">SCANNING</span>
+                                    </div>
+                                    <div class="scan-progress-bar">
+                                        <div class="scan-progress-fill" id="scan-progress-fill"></div>
+                                    </div>
+                                    <div class="scan-step-label" id="scan-step-label">Step 1 of 5 — Center</div>
+                                    <div class="scan-actions">
+                                        <button class="btn btn-ghost" onclick="cancelFaceScan()">Cancel</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="toggle-row">
+                                <div class="toggle-info">
+                                    <span class="toggle-name">Lock on Unknown User</span>
+                                    <span class="toggle-desc">Lock screen when an unregistered face is detected</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-face-lock-unknown">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gesture Reference -->
+                    <div class="gesture-section">
+                        <div class="section-title" style="border-bottom:none; padding-bottom:0; margin-bottom:16px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                            </svg>
+                            Gesture Reference
+                        </div>
+                        <div class="gesture-grid">
+                            <div class="gesture-card" onclick="showGestureAnimation('left_wink')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Left Wink</div>
+                                    <div class="gesture-desc">Close left eye briefly</div>
+                                </div>
+                            </div>
+                            <div class="gesture-card" onclick="showGestureAnimation('right_wink')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Right Wink</div>
+                                    <div class="gesture-desc">Close right eye briefly</div>
+                                </div>
+                            </div>
+                            <div class="gesture-card" onclick="showGestureAnimation('jaw_drop')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                                        <line x1="9" y1="9" x2="9.01" y2="9" />
+                                        <line x1="15" y1="9" x2="15.01" y2="9" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Jaw Drop</div>
+                                    <div class="gesture-desc">Open mouth wide</div>
+                                </div>
+                            </div>
+                            <div class="gesture-card" onclick="showGestureAnimation('pucker')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="9" y1="9" x2="9.01" y2="9" />
+                                        <line x1="15" y1="9" x2="15.01" y2="9" />
+                                        <path d="M10 15a2 2 0 0 0 4 0" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Pucker</div>
+                                    <div class="gesture-desc">Pucker lips together</div>
+                                </div>
+                            </div>
+                            <div class="gesture-card" onclick="showGestureAnimation('dual_blink')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path
+                                            d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                        <line x1="1" y1="1" x2="23" y2="23" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Dual Blink</div>
+                                    <div class="gesture-desc">Close both eyes together</div>
+                                </div>
+                            </div>
+                            <div class="gesture-card" onclick="showGestureAnimation('open_palm')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M18 11V6a2 2 0 0 0-4 0v1" />
+                                        <path d="M14 10V4a2 2 0 0 0-4 0v6" />
+                                        <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
+                                        <path
+                                            d="M18 8a2 2 0 0 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Open Palm</div>
+                                    <div class="gesture-desc">Show open hand with fingers extended</div>
+                                </div>
+                            </div>
+                            <div class="gesture-card" onclick="showGestureAnimation('head_tilt')">
+                                <div class="gesture-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="8" r="5" />
+                                        <path d="M12 13v4" />
+                                        <path d="M8 21h8" />
+                                        <path d="M7 4l-3-2" />
+                                        <path d="M17 4l3-2" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <div class="gesture-name">Head Tilt</div>
+                                    <div class="gesture-desc">Tilt head to activate scroll mode</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings Actions -->
+                    <div class="settings-actions">
+                        <button class="btn btn-ghost" onclick="openGestureTutorial()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                            Gesture Tutorial
+                        </button>
+                        <button class="btn btn-ghost" onclick="resetDefaults()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="1 4 1 10 7 10" />
+                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                            </svg>
+                            Reset to Defaults
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ═══════ SHORTCUTS ═══════ -->
+                <div class="page" id="page-shortcuts">
+                    <h1 class="page-title">Keyboard Shortcuts</h1>
+                    <p class="page-subtitle">Global hotkeys active while the engine is running in stealth mode.</p>
+
+                    <div class="shortcuts-grid">
+                        <div class="glass-card shortcut-card">
+                            <div class="shortcut-info">
+                                <span class="shortcut-action">Toggle Mouse Tracking</span>
+                                <span class="shortcut-desc">Enable or disable head-controlled cursor</span>
+                            </div>
+                            <div class="key-combo">
+                                <span class="key">Ctrl</span>
+                                <span class="key">M</span>
+                            </div>
+                            <button class="shortcut-activate"
+                                onclick="confirmShortcut('toggle_mouse', 'Toggle Mouse Tracking')">Activate</button>
+                        </div>
+                        <div class="glass-card shortcut-card">
+                            <div class="shortcut-info">
+                                <span class="shortcut-action">Recalibrate Face</span>
+                                <span class="shortcut-desc">Reset neutral head position for fresh tracking</span>
+                            </div>
+                            <div class="key-combo">
+                                <span class="key">Ctrl</span>
+                                <span class="key">C</span>
+                            </div>
+                            <button class="shortcut-activate"
+                                onclick="confirmShortcut('recalibrate', 'Recalibrate Face')">Activate</button>
+                        </div>
+                        <div class="glass-card shortcut-card">
+                            <div class="shortcut-info">
+                                <span class="shortcut-action">Quit Engine</span>
+                                <span class="shortcut-desc">Shut down the pointe engine process</span>
+                            </div>
+                            <div class="key-combo">
+                                <span class="key">Ctrl</span>
+                                <span class="key">Q</span>
+                            </div>
+                            <button class="shortcut-activate"
+                                onclick="confirmShortcut('quit_engine', 'Quit Engine')">Activate</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="footer-bar">
+                <div class="footer-left">
+                    <span class="footer-text">pointe v1.0.0</span>
+                    <span class="footer-sep"></span>
+                    <span class="footer-text" id="footer-platform">Windows</span>
+                </div>
+                <div class="footer-right">
+                    <span class="footer-text" id="footer-status">Ready</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ═══════ SCRIPTS ═══════ -->
+    <script>
+        /* ─── PAGE NAV ─── */
+        function switchPage(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('page-' + pageId).classList.add('active');
+            document.querySelector(`.nav-tab[data-page="${pageId}"]`).classList.add('active');
+        }
+
+        /* ─── SLIDER SYNC ─── */
+        const sensX = document.getElementById('sens-x');
+        const sensY = document.getElementById('sens-y');
+        const valX = document.getElementById('val-x');
+        const valY = document.getElementById('val-y');
+        const statSX = document.getElementById('stat-sx');
+        const statSY = document.getElementById('stat-sy');
+
+        function updateSliderTrack(slider) {
+            const pct = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
+            slider.style.background = `linear-gradient(90deg, #c8b89a 0%, #c8b89a ${pct}%, #1e1e1e ${pct}%)`;
+        }
+
+        sensX.addEventListener('input', function () {
+            const v = parseFloat(this.value).toFixed(2);
+            valX.innerText = v; statSX.innerText = v;
+            updateSliderTrack(this);
+        });
+
+        sensY.addEventListener('input', function () {
+            const v = parseFloat(this.value).toFixed(2);
+            valY.innerText = v; statSY.innerText = v;
+            updateSliderTrack(this);
+        });
+
+        updateSliderTrack(sensX);
+        updateSliderTrack(sensY);
+
+        /* ─── GESTURE DROPDOWN SYNC ─── */
+        const gestureLabels = { left_wink: 'Left Wink', right_wink: 'Right Wink', jaw_drop: 'Jaw Drop', pucker: 'Pucker', both_closed: 'Dual Blink', open_palm: 'Open Palm', none: 'Unassigned' };
+
+        const inputDropdownIds = ['bind-lclick', 'bind-rclick', 'bind-dclick', 'bind-media', 'bind-drag'];
+        const statIds = { 'bind-lclick': 'stat-lclick', 'bind-rclick': 'stat-rclick', 'bind-dclick': 'stat-dclick', 'bind-media': 'stat-media', 'bind-drag': 'stat-drag' };
+
+        inputDropdownIds.forEach(id => {
+            document.getElementById(id).addEventListener('change', function () {
+                const statEl = document.getElementById(statIds[id]);
+                if (statEl) statEl.innerText = gestureLabels[this.value] || this.value;
+            });
+        });
+
+        /* ─── GESTURE CONFLICT CHECK ─── */
+        function checkGestureConflicts() {
+            const allIds = [...inputDropdownIds, 'bind-scroll'];
+            const usedBy = {};
+            const conflicts = [];
+            allIds.forEach(id => {
+                const val = document.getElementById(id).value;
+                if (val && val !== 'none') {
+                    if (usedBy[val]) {
+                        usedBy[val].push(id);
+                    } else {
+                        usedBy[val] = [id];
+                    }
+                }
+            });
+            const labelMap = { 'bind-lclick': 'Left Click', 'bind-rclick': 'Right Click', 'bind-dclick': 'Double Click', 'bind-media': 'Media Play/Pause', 'bind-drag': 'Drag & Drop', 'bind-scroll': 'Scroll Activation' };
+            for (const [gesture, ids] of Object.entries(usedBy)) {
+                if (ids.length > 1) {
+                    conflicts.push(`<b>${gestureLabels[gesture]}</b> is assigned to: ${ids.map(i => labelMap[i]).join(', ')}`);
+                }
+            }
+            return conflicts;
+        }
+
+        function showConflictWarning(conflicts) {
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.innerHTML = `
+                <div class="confirm-card">
+                    <div class="confirm-title">⚠️ Gesture Conflict</div>
+                    <div class="confirm-desc">
+                        <p>The following gestures are assigned to multiple actions:</p>
+                        <ul style="text-align:left;margin:8px 0;padding-left:20px;">${conflicts.map(c => `<li>${c}</li>`).join('')}</ul>
+                        <p>Please resolve conflicts before launching the engine.</p>
+                    </div>
+                    <div class="confirm-actions">
+                        <button class="btn btn-primary" onclick="this.closest('.confirm-overlay').remove()">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        /* ─── SCROLL TOGGLE VISIBILITY ─── */
+        document.getElementById('toggle-scroll').addEventListener('change', function () {
+            document.getElementById('scroll-gesture-row').style.display = this.checked ? 'block' : 'none';
+        });
+
+        /* ─── DEFAULTS ─── */
+        function resetDefaults() {
+            sensX.value = 2.5; valX.innerText = '2.50'; statSX.innerText = '2.50'; updateSliderTrack(sensX);
+            sensY.value = 2.5; valY.innerText = '2.50'; statSY.innerText = '2.50'; updateSliderTrack(sensY);
+            document.getElementById('bind-lclick').value = 'left_wink'; document.getElementById('stat-lclick').innerText = 'Left Wink';
+            document.getElementById('bind-rclick').value = 'right_wink'; document.getElementById('stat-rclick').innerText = 'Right Wink';
+            document.getElementById('bind-dclick').value = 'pucker'; document.getElementById('stat-dclick').innerText = 'Pucker';
+            document.getElementById('bind-media').value = 'open_palm'; document.getElementById('stat-media').innerText = 'Open Palm';
+            document.getElementById('bind-drag').value = 'jaw_drop'; document.getElementById('stat-drag').innerText = 'Jaw Drop';
+            document.getElementById('bind-scroll').value = 'both_closed';
+            document.getElementById('toggle-media-auto').checked = true;
+            document.getElementById('toggle-scroll').checked = true;
+            document.getElementById('scroll-gesture-row').style.display = 'block';
+            document.getElementById('toggle-face-lock').checked = false;
+            document.getElementById('toggle-face-lock-unknown').checked = false;
+            document.getElementById('face-lock-panel').style.display = 'none';
+            document.getElementById('face-lock-timeout').value = '30';
+
+        }
+
+        /* ─── PRESETS ─── */
+        const presets = {
+            browsing: { x: 2.0, y: 2.0 },
+            gaming: { x: 3.5, y: 3.0 },
+            precision: { x: 1.2, y: 1.2 }
+        };
+
+        function applyPreset(name) {
+            const p = presets[name];
+            if (!p) return;
+            sensX.value = p.x; valX.innerText = p.x.toFixed(2); statSX.innerText = p.x.toFixed(2); updateSliderTrack(sensX);
+            sensY.value = p.y; valY.innerText = p.y.toFixed(2); statSY.innerText = p.y.toFixed(2); updateSliderTrack(sensY);
+
+            document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+        }
+
+        /* ─── FACE LOCK ─── */
+        function toggleFaceLock() {
+            const on = document.getElementById('toggle-face-lock').checked;
+            document.getElementById('face-lock-panel').style.display = on ? 'block' : 'none';
+        }
+
+        let registeredFaces = [];
+
+        function renderFaces() {
+            const list = document.getElementById('face-list');
+            const countEl = document.getElementById('face-count');
+            const regBtn = document.getElementById('btn-register-face');
+            countEl.innerText = `${registeredFaces.length} / 5`;
+            regBtn.disabled = registeredFaces.length >= 5;
+            if (registeredFaces.length >= 5) {
+                regBtn.classList.add('btn-disabled');
+            } else {
+                regBtn.classList.remove('btn-disabled');
+            }
+            list.innerHTML = '';
+            registeredFaces.forEach((face, idx) => {
+                const item = document.createElement('div');
+                item.className = 'face-list-item';
+                item.innerHTML = `
+                    <div class="face-list-info">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;color:var(--accent);flex-shrink:0;">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                        </svg>
+                        <span class="face-list-name">Face ${idx + 1}</span>
+                        <span class="face-list-id">${face.id}</span>
+                    </div>
+                    <button class="face-list-delete" onclick="removeFace('${face.id}')" title="Remove">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        /* ─── GUIDED FACE SCAN ─── */
+        const SCAN_POSES = [
+            { name: 'Center', instruction: 'Look straight at the camera', arrow: null },
+            { name: 'Left', instruction: 'Turn your head slightly to the LEFT', arrow: 270 },
+            { name: 'Right', instruction: 'Turn your head slightly to the RIGHT', arrow: 90 },
+            { name: 'Up', instruction: 'Tilt your head slightly UP', arrow: 0 },
+            { name: 'Down', instruction: 'Tilt your head slightly DOWN', arrow: 180 }
+        ];
+        let scanActive = false;
+        let scanFrames = [];
+        let scanFeedInterval = null;
+
+        function openFaceScan() {
+            if (registeredFaces.length >= 5) return;
+            scanActive = true;
+            scanFrames = [];
+            document.getElementById('face-scan-overlay').style.display = 'flex';
+            document.getElementById('scan-progress-fill').style.width = '0%';
+            startScanFeed();
+            runScanSequence();
+        }
+
+        function cancelFaceScan() {
+            scanActive = false;
+            stopScanFeed();
+            document.getElementById('face-scan-overlay').style.display = 'none';
+        }
+
+        function startScanFeed() {
+            const feedImg = document.getElementById('scan-video-feed');
+            scanFeedInterval = setInterval(async () => {
+                if (!scanActive) return;
+                try {
+                    const result = await eel.capture_face_frame()();
+                    if (result && result.success) {
+                        feedImg.src = 'data:image/jpeg;base64,' + result.frame;
+                    }
+                } catch (e) { }
+            }, 100);
+        }
+
+        function stopScanFeed() {
+            if (scanFeedInterval) {
+                clearInterval(scanFeedInterval);
+                scanFeedInterval = null;
+            }
+        }
+
+        async function runScanSequence() {
+            for (let i = 0; i < SCAN_POSES.length; i++) {
+                if (!scanActive) return;
+                const pose = SCAN_POSES[i];
+                document.getElementById('scan-instruction').innerText = pose.instruction;
+                document.getElementById('scan-step-label').innerText = `Step ${i + 1} of ${SCAN_POSES.length} — ${pose.name}`;
+                document.getElementById('scan-progress-fill').style.width = `${(i / SCAN_POSES.length) * 100}%`;
+
+                // Show directional arrow
+                const arrow = document.getElementById('scan-arrow');
+                if (pose.arrow !== null) {
+                    arrow.style.display = 'block';
+                    arrow.style.transform = `rotate(${pose.arrow}deg)`;
+                } else {
+                    arrow.style.display = 'none';
+                }
+
+                // Animate crosshair
+                const ring = document.querySelector('.crosshair-ring');
+                ring.classList.remove('scan-capturing');
+                void ring.offsetWidth; // force reflow
+                ring.classList.add('scan-capturing');
+
+                // Wait 2 seconds then capture
+                await new Promise(r => setTimeout(r, 2000));
+                if (!scanActive) return;
+
+                try {
+                    const result = await eel.capture_face_frame()();
+                    if (result && result.success) {
+                        scanFrames.push(result.frame);
+                    }
+                } catch (e) { }
+            }
+
+            // All poses captured — register
+            if (!scanActive) return;
+            document.getElementById('scan-instruction').innerText = 'Processing face data...';
+            document.getElementById('scan-progress-fill').style.width = '100%';
+            document.getElementById('scan-arrow').style.display = 'none';
+
+            try {
+                const result = await eel.register_face_multi(scanFrames)();
+                if (result && result.success) {
+                    registeredFaces.push({ id: result.id });
+                    renderFaces();
+                    cancelFaceScan();
+                } else {
+                    cancelFaceScan();
+                    showFaceError(result ? result.error : 'Registration failed.');
+                }
+            } catch (e) {
+                cancelFaceScan();
+                showFaceError('Failed to communicate with backend.');
+            }
+        }
+
+        async function removeFace(faceId) {
+            try {
+                await eel.delete_face(faceId)();
+                registeredFaces = registeredFaces.filter(f => f.id !== faceId);
+                renderFaces();
+            } catch (e) { }
+        }
+
+        function showFaceError(msg) {
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.innerHTML = `
+                <div class="confirm-card">
+                    <div class="confirm-title">Registration Failed</div>
+                    <div class="confirm-desc">${msg}</div>
+                    <div class="confirm-actions">
+                        <button class="btn btn-primary" onclick="this.closest('.confirm-overlay').remove()">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        /* ─── GESTURE ANIMATION POPUP (LOTTIE) ─── */
+        const GESTURE_LOTTIE = {
+            left_wink: { path: 'gestures/right_wink.json', mirror: true },
+            right_wink: { path: 'gestures/right_wink.json', mirror: false },
+            jaw_drop: { path: 'gestures/jaw_drop.json' },
+            pucker: { path: 'gestures/pout.json' },
+            dual_blink: { path: 'gestures/dual_blink.json' },
+            open_palm: { path: 'gestures/palm.json' },
+            head_tilt: { path: 'gestures/head_shake.json', rotate: true }
+        };
+
+        function showGestureAnimation(gestureType) {
+            const config = GESTURE_LOTTIE[gestureType];
+            if (!config) return;
+
+            const overlay = document.createElement('div');
+            overlay.className = 'gesture-anim-overlay';
+
+            const container = document.createElement('div');
+            container.className = 'gesture-anim-icon';
+            if (config.mirror) container.style.transform = 'scaleX(-1)';
+            if (config.rotate) container.style.transform = 'rotate(90deg)';
+            overlay.appendChild(container);
+
+            document.body.appendChild(overlay);
+
+            const anim = lottie.loadAnimation({
+                container: container,
+                renderer: 'svg',
+                loop: false,
+                autoplay: true,
+                path: config.path
+            });
+
+            anim.addEventListener('complete', () => {
+                setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+            });
+
+            overlay.addEventListener('click', () => {
+                anim.destroy();
+                overlay.remove();
+            });
+
+            // Fallback auto-remove
+            setTimeout(() => {
+                if (overlay.parentNode) { anim.destroy(); overlay.remove(); }
+            }, 4000);
+        }
+
+        /* ─── MOUSE CONTROL TOGGLE ─── */
+        function toggleMouseControl() {
+            const enabled = document.getElementById('toggle-mouse-control').checked;
+            const motionSection = document.querySelector('#page-settings .settings-section:first-child');
+            const inputSection = document.getElementById('section-input-routing') || document.querySelector('#page-settings .settings-section:nth-child(2)');
+            // Show/hide Motion Dynamics section
+            if (motionSection) motionSection.style.display = enabled ? '' : 'none';
+            // Show/hide Input Routing section  
+            const sections = document.querySelectorAll('#page-settings .settings-layout > .settings-section');
+            if (sections[1]) sections[1].style.display = enabled ? '' : 'none';
+            // Update dashboard card
+            const gestureCard = document.querySelectorAll('.stats-row .stat-card')[1];
+            if (gestureCard) gestureCard.style.display = enabled ? '' : 'none';
+        }
+
+        /* ─── GESTURE TUTORIAL MODAL ─── */
+        function openGestureTutorial() {
+            const gestures = [
+                { id: 'left_wink', name: 'Left Wink', desc: 'Close your left eye while keeping the right open.' },
+                { id: 'right_wink', name: 'Right Wink', desc: 'Close your right eye while keeping the left open.' },
+                { id: 'jaw_drop', name: 'Jaw Drop', desc: 'Open your mouth wide — used for drag & drop or click actions.' },
+                { id: 'pucker', name: 'Pucker', desc: 'Purse your lips together as if blowing a kiss.' },
+                { id: 'dual_blink', name: 'Dual Blink', desc: 'Close both eyes briefly — activates scroll mode.' },
+                { id: 'open_palm', name: 'Open Palm', desc: 'Show your open hand with all fingers extended.' },
+                { id: 'head_tilt', name: 'Head Tilt', desc: 'Tilt your head left or right to scroll up or down.' }
+            ];
+            let currentIdx = 0;
+
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.id = 'gesture-tutorial-overlay';
+
+            function renderStep() {
+                const g = gestures[currentIdx];
+                overlay.innerHTML = `
+                    <div class="confirm-card" style="max-width:420px;">
+                        <div class="confirm-title">${g.name}</div>
+                        <div id="tut-lottie-container" style="width:160px;height:160px;margin:12px auto;"></div>
+                        <div class="confirm-desc">${g.desc}</div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${currentIdx + 1} / ${gestures.length}</div>
+                        <div class="confirm-actions" style="gap:8px;">
+                            <button class="btn btn-ghost" id="tut-prev" ${currentIdx === 0 ? 'disabled' : ''}>Prev</button>
+                            <button class="btn btn-primary" id="tut-next">${currentIdx === gestures.length - 1 ? 'Done' : 'Next'}</button>
+                        </div>
+                    </div>
+                `;
+                const config = GESTURE_LOTTIE[g.id];
+                if (config) {
+                    const container = document.getElementById('tut-lottie-container');
+                    if (config.mirror) container.style.transform = 'scaleX(-1)';
+                    if (config.rotate) container.style.transform = 'rotate(90deg)';
+                    lottie.loadAnimation({ container, renderer: 'svg', loop: true, autoplay: true, path: config.path });
+                }
+                document.getElementById('tut-prev').addEventListener('click', () => { currentIdx--; renderStep(); });
+                document.getElementById('tut-next').addEventListener('click', () => {
+                    if (currentIdx === gestures.length - 1) { overlay.remove(); }
+                    else { currentIdx++; renderStep(); }
+                });
+            }
+
+            document.body.appendChild(overlay);
+            renderStep();
+        }
+
+        /* ─── TOGGLE ENGINE (LAUNCH / KILL) ─── */
+        let engineRunning = false;
+
+        function toggleEngine() {
+            if (engineRunning) {
+                killEngine();
+            } else {
+                launchEngine();
+            }
+        }
+
+        function launchEngine() {
+            // Check for gesture conflicts before launching
+            const conflicts = checkGestureConflicts();
+            if (conflicts.length > 0) {
+                showConflictWarning(conflicts);
+                return;
+            }
+
+            const btn = document.getElementById('btn-launch');
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Launching...';
+            btn.disabled = true;
+            document.getElementById('footer-status').innerText = 'Launching Engine...';
+
+            let config = {
+                sens_x: sensX.value,
+                sens_y: sensY.value,
+                lclick: document.getElementById('bind-lclick').value,
+                rclick: document.getElementById('bind-rclick').value,
+                dclick: document.getElementById('bind-dclick').value,
+                media_pp: document.getElementById('bind-media').value,
+                drag: document.getElementById('bind-drag').value,
+                scroll: document.getElementById('bind-scroll').value,
+                media_auto_pause: document.getElementById('toggle-media-auto').checked,
+                scroll_enabled: document.getElementById('toggle-scroll').checked,
+                mouse_control_enabled: document.getElementById('toggle-mouse-control').checked,
+                pinch_copy_paste: document.getElementById('toggle-pinch-cp').checked,
+                hand_swap_window: document.getElementById('toggle-hand-swap').checked,
+                face_lock_enabled: document.getElementById('toggle-face-lock').checked,
+                face_lock_timeout: parseInt(document.getElementById('face-lock-timeout').value),
+                face_lock_on_unknown: document.getElementById('toggle-face-lock-unknown').checked
+            };
+            eel.save_and_launch(config)();
+        }
+
+        function killEngine() {
+            const btn = document.getElementById('btn-launch');
+            btn.disabled = true;
+            document.getElementById('footer-status').innerText = 'Stopping Engine...';
+            eel.kill_engine()();
+        }
+
+        /* ─── ENGINE LIFECYCLE CALLBACKS ─── */
+        eel.expose(engine_launched);
+        function engine_launched() {
+            engineRunning = true;
+            const btn = document.getElementById('btn-launch');
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> KILL ENGINE';
+            btn.className = 'btn btn-danger';
+            btn.disabled = false;
+            document.getElementById('footer-status').innerText = 'Engine Running';
+            document.getElementById('stat-tracking').innerText = 'Active';
+        }
+
+        eel.expose(engine_killed);
+        function engine_killed() {
+            engineRunning = false;
+            const btn = document.getElementById('btn-launch');
+            btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> LAUNCH ENGINE';
+            btn.className = 'btn btn-primary';
+            btn.disabled = false;
+            document.getElementById('footer-status').innerText = 'Ready';
+            document.getElementById('stat-calibration').innerText = 'Pending';
+            document.getElementById('stat-tracking').innerText = 'Ready';
+        }
+
+        /* ─── CAMERA WARNING ─── */
+        eel.expose(showWarning);
+        let warningTimer = null;
+        function showWarning(type) {
+            const el = document.getElementById('camera-warning');
+            if (type === 'low_light') el.innerText = '⚠ LOW LIGHT DETECTED';
+            else if (type === 'face_edge') el.innerText = '⚠ FACE NOT FULLY IN FRAME';
+            else return;
+            el.style.display = 'block';
+            if (warningTimer) clearTimeout(warningTimer);
+            warningTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
+        }
+
+        /* ─── SHORTCUT ACTIVATION ─── */
+        function confirmShortcut(action, label) {
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-overlay';
+            overlay.innerHTML = `
+                <div class="confirm-card">
+                    <div class="confirm-title">Activate "${label}"?</div>
+                    <div class="confirm-desc">This will fire the shortcut immediately. Make sure the engine is running.</div>
+                    <div class="confirm-actions">
+                        <button class="btn btn-secondary" onclick="this.closest('.confirm-overlay').remove()">Cancel</button>
+                        <button class="btn btn-primary" onclick="fireShortcut('${action}'); this.closest('.confirm-overlay').remove();">Confirm</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        function fireShortcut(action) {
+            eel.activate_shortcut(action)();
+        }
+
+        /* ─── CAMERA FEED ─── */
+        let frameCount = 0;
+
+        eel.expose(updateImage);
+        let tutorialShown = false;
+        function updateImage(base64_img) {
+            const src = 'data:image/jpeg;base64,' + base64_img;
+            document.getElementById('video-feed').src = src;
+
+            if (!tutorialShown) {
+                tutorialShown = true;
+                // Tutorial no longer auto-shows on boot
+            }
+
+            const tutFeed = document.getElementById('tut-video-feed');
+            if (tutFeed) tutFeed.src = src;
+
+            const ph = document.getElementById('cam-placeholder');
+            if (ph && ph.style.display !== 'none') ph.style.display = 'none';
+
+            frameCount++;
+        }
+
+        setInterval(() => {
+            const fps = frameCount;
+            document.getElementById('cam-fps').innerText = fps;
+            const bars = document.querySelectorAll('.signal-bar');
+            const strength = fps >= 20 ? 4 : fps >= 12 ? 3 : fps >= 5 ? 2 : fps > 0 ? 1 : 0;
+            bars.forEach((bar, i) => {
+                bar.classList.toggle('inactive', i >= strength);
+            });
+            frameCount = 0;
+        }, 1000);
+
+        /* ─── TELEMETRY FROM BACKEND ─── */
+        eel.expose(updateTelemetry);
+        function updateTelemetry(faceDetected) {
+            const el = document.getElementById('telem-face');
+            if (faceDetected) {
+                el.innerText = 'DETECTED';
+                el.className = 'telem-value success';
+            } else {
+                el.innerText = 'NO FACE';
+                el.className = 'telem-value warn';
+            }
+        }
+
+        /* ─── TUTORIAL WIZARD ─── */
+        let tutStep = 0;
+        let currentCount = 0;
+        const TARGET_COUNT = 3;
+
+        const wizardIcons = {
+            eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+            scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1"/></svg>',
+            wink: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+            check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+        };
+
+        function startTutorial() {
+            document.getElementById('tut-btn').style.display = 'none';
+            document.getElementById('tut-desc').innerText = 'Analyzing facial topology. Hold still...';
+            document.getElementById('wizard-icon').innerHTML = wizardIcons.scan;
+            eel.set_tutorial_mode(true)();
+        }
+
+        function skipTutorial() {
+            const overlay = document.getElementById('tutorial-overlay');
+            overlay.style.opacity = '0';
+            overlay.style.transition = 'opacity 0.4s ease';
+            setTimeout(() => { overlay.style.display = 'none'; }, 400);
+        }
+
+        eel.expose(tutorial_event);
+        function tutorial_event(eventName) {
+            if (tutStep === 0 && eventName === 'calibrated') {
+                tutStep = 1;
+                document.getElementById('wizard-icon').innerHTML = wizardIcons.wink;
+                document.getElementById('tut-title').innerText = 'Calibration: Left Click';
+                document.getElementById('tut-desc').innerText = 'Execute a Left Wink to verify the detection threshold.';
+                document.getElementById('tut-progress-container').style.visibility = 'visible';
+                document.getElementById('stat-calibration').innerText = 'Active';
+                document.getElementById('stat-calibration').classList.add('live');
+            }
+            else if (tutStep === 1 && eventName === 'left_wink') {
+                registerCombo();
+                if (currentCount >= TARGET_COUNT) setTimeout(() => { tutStep = 2; currentCount = 0; resetProgress(); document.getElementById('tut-title').innerText = 'Calibration: Drag State'; document.getElementById('tut-desc').innerText = 'Execute a Jaw Drop to verify the detection threshold.'; }, 600);
+            }
+            else if (tutStep === 2 && eventName === 'jaw_drop') {
+                registerCombo();
+                if (currentCount >= TARGET_COUNT) setTimeout(() => finishTutorial(), 600);
+            }
+        }
+
+        function registerCombo() {
+            currentCount++;
+            document.getElementById('tut-count').innerText = `${currentCount} / ${TARGET_COUNT}`;
+            document.getElementById('tut-progress-fill').style.width = `${(currentCount / TARGET_COUNT) * 100}%`;
+        }
+
+        function resetProgress() {
+            document.getElementById('tut-count').innerText = `0 / ${TARGET_COUNT}`;
+            document.getElementById('tut-progress-fill').style.width = '0%';
+        }
+
+        function finishTutorial() {
+            eel.set_tutorial_mode(false)();
+            document.getElementById('wizard-icon').innerHTML = wizardIcons.check;
+            document.getElementById('tut-title').innerText = 'Calibration Complete';
+            document.getElementById('tut-desc').innerText = 'Your face has been mapped. You can now configure settings and launch the engine.';
+            document.getElementById('tut-progress-container').style.visibility = 'hidden';
+
+            const overlay = document.getElementById('tutorial-overlay');
+            setTimeout(() => {
+                overlay.style.opacity = '0';
+                overlay.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => { overlay.style.display = 'none'; }, 500);
+            }, 1200);
+
+            document.getElementById('footer-status').innerText = 'Calibration Complete';
+        }
+
+        /* ─── LOAD SETTINGS ON STARTUP ─── */
+        async function loadCurrentSettings() {
+            try {
+                const info = await eel.get_system_info()();
+                if (info) {
+                    document.getElementById('cam-res').innerText = (info.resolution || '1280 × 720').replace(' × ', '×');
+                    document.getElementById('footer-platform').innerText = info.platform || 'Windows';
+                    const tp = document.getElementById('telem-platform');
+                    if (tp) tp.innerText = (info.platform || 'WIN').substring(0, 3).toUpperCase();
+                    const rEl = document.getElementById('stat-cam-res');
+                    const pEl = document.getElementById('stat-platform');
+                    const vEl = document.getElementById('stat-version');
+                    if (rEl) rEl.innerText = info.resolution || '1280 × 720';
+                    if (pEl) pEl.innerText = info.platform || 'Windows';
+                    if (vEl) vEl.innerText = info.version || 'v1.0.0';
+                }
+            } catch (e) { }
+            try {
+                const s = await eel.get_current_settings()();
+                if (s) {
+                    sensX.value = s.sens_x; valX.innerText = parseFloat(s.sens_x).toFixed(2); statSX.innerText = parseFloat(s.sens_x).toFixed(2); updateSliderTrack(sensX);
+                    sensY.value = s.sens_y; valY.innerText = parseFloat(s.sens_y).toFixed(2); statSY.innerText = parseFloat(s.sens_y).toFixed(2); updateSliderTrack(sensY);
+                    if (s.lclick) { document.getElementById('bind-lclick').value = s.lclick; document.getElementById('stat-lclick').innerText = gestureLabels[s.lclick] || s.lclick; }
+                    if (s.rclick) { document.getElementById('bind-rclick').value = s.rclick; document.getElementById('stat-rclick').innerText = gestureLabels[s.rclick] || s.rclick; }
+                    if (s.dclick) { document.getElementById('bind-dclick').value = s.dclick; document.getElementById('stat-dclick').innerText = gestureLabels[s.dclick] || s.dclick; }
+                    if (s.media_pp) { document.getElementById('bind-media').value = s.media_pp; document.getElementById('stat-media').innerText = gestureLabels[s.media_pp] || s.media_pp; }
+                    if (s.drag) { document.getElementById('bind-drag').value = s.drag; document.getElementById('stat-drag').innerText = gestureLabels[s.drag] || s.drag; }
+                    if (s.scroll) { document.getElementById('bind-scroll').value = s.scroll; }
+                    document.getElementById('toggle-media-auto').checked = s.media_auto_pause !== false;
+                    document.getElementById('toggle-scroll').checked = s.scroll_enabled !== false;
+                    document.getElementById('scroll-gesture-row').style.display = s.scroll_enabled !== false ? 'block' : 'none';
+                    // Face Lock
+                    document.getElementById('toggle-face-lock').checked = s.face_lock_enabled === true;
+                    document.getElementById('face-lock-panel').style.display = s.face_lock_enabled ? 'block' : 'none';
+                    document.getElementById('face-lock-timeout').value = String(s.face_lock_timeout || 30);
+                    document.getElementById('toggle-face-lock-unknown').checked = s.face_lock_on_unknown === true;
+                    if (s.face_lock_faces && s.face_lock_faces.length) {
+                        registeredFaces = s.face_lock_faces;
+                        renderFaces();
+                    }
+                    // Mouse control / keyboard input
+                    document.getElementById('toggle-mouse-control').checked = s.mouse_control_enabled !== false;
+                    document.getElementById('toggle-pinch-cp').checked = s.pinch_copy_paste !== false;
+                    document.getElementById('toggle-hand-swap').checked = s.hand_swap_window !== false;
+                    toggleMouseControl();
+                }
+            } catch (e) { }
+        };
+
+        loadCurrentSettings();
+    </script>
+
+    <style>
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</body>
+
+</html>
