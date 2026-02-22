@@ -22,6 +22,9 @@ Thumbs.db
 # Gemini agent
 .gemini/
 
+# Node
+node_modules/
+
 # Distribution
 dist/
 build/

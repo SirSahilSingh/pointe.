@@ -254,17 +254,44 @@
             if (streamInterval) return;
             const interval = 1000 / TARGET_FPS;
 
+            // Smart framing output: always 640×360 (16:9 landscape)
+            const OUT_W = 640;
+            const OUT_H = 360;
+            canvas.width = OUT_W;
+            canvas.height = OUT_H;
+
             streamInterval = setInterval(() => {
                 if (!ws || ws.readyState !== WebSocket.OPEN) return;
                 if (video.readyState < 2) return;
 
-                // Update canvas size if needed
-                if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                if (vw === 0 || vh === 0) return;
+
+                // Smart framing: if portrait (h > w), crop a landscape 16:9 region
+                // centered vertically in the upper portion (face area)
+                let sx = 0, sy = 0, sw = vw, sh = vh;
+
+                if (vh > vw) {
+                    // Portrait mode: crop to landscape
+                    sw = vw;                         // full width
+                    sh = Math.round(vw * (9 / 16));  // height for 16:9 from that width
+                    sx = 0;
+                    // Position crop in upper third (face is usually there)
+                    sy = Math.round(vh * 0.15);
+                    // Clamp so we don't go out of bounds
+                    if (sy + sh > vh) sy = Math.max(0, vh - sh);
+                } else {
+                    // Already landscape or square: use full frame
+                    // Keep 16:9 aspect from center
+                    const targetH = Math.round(vw * (9 / 16));
+                    if (targetH < vh) {
+                        sy = Math.round((vh - targetH) / 2);
+                        sh = targetH;
+                    }
                 }
 
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
 
                 canvas.toBlob((blob) => {
                     if (blob && ws && ws.readyState === WebSocket.OPEN) {

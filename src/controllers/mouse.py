@@ -15,7 +15,7 @@ class MouseController:
         self.center_y = self.screen_h / 2.0
         self.cursor_x = self.center_x
         self.cursor_y = self.center_y
-        self.dead_zone_norm = 0.03
+        self.dead_zone_norm = getattr(settings, 'DEADZONE', 0.03)
 
         # --- THE AUTO-AGENT (Personalized Baselines) ---
         self.is_agent_calibrated = False
@@ -71,7 +71,8 @@ class MouseController:
         return v - self.dead_zone_norm if v > 0 else v + self.dead_zone_norm
 
     def acceleration_curve(self, v):
-        return np.sign(v) * (abs(v) ** 1.6)
+        exp = getattr(settings, 'ACCELERATION', 1.6)
+        return np.sign(v) * (abs(v) ** exp)
 
     def move(self, dx_norm, dy_norm, zoom):
         if self.action_states["scroll_mode"]: return
@@ -90,7 +91,8 @@ class MouseController:
         ty = self.center_y + (ny * (self.screen_h / 2.0))
 
         pixel_dist = math.hypot(tx - self.cursor_x, ty - self.cursor_y)
-        dynamic_smooth = 0.02 + (min(pixel_dist, 150) / 150.0) * (0.40 - 0.02)
+        base_smooth = getattr(settings, 'SMOOTHING', 0.03)
+        dynamic_smooth = base_smooth + (min(pixel_dist, 150) / 150.0) * (0.40 - base_smooth)
 
         self.cursor_x += (tx - self.cursor_x) * dynamic_smooth
         self.cursor_y += (ty - self.cursor_y) * dynamic_smooth
@@ -180,16 +182,19 @@ class MouseController:
         mar = mouth_h / mouth_w if mouth_w > 0 else 0
         m_ratio = mouth_w / face_w if face_w > 0 else 0
 
-        # Personalized Thresholds (e.g. "Eye must be 60% smaller than YOUR normal resting eye")
-        L_CLOSED = l_ear < (self.base_l_ear * 0.6)
-        R_CLOSED = r_ear < (self.base_r_ear * 0.6)
+        # Personalized Thresholds — using GESTURE_CALIBRATION from settings
+        cal = getattr(settings, 'GESTURE_CALIBRATION', {})
+        eye_thresh = cal.get('left_wink', {}).get('threshold', 0.60)
+        pucker_thresh = cal.get('pucker', {}).get('threshold', 0.85)
+        jaw_thresh = cal.get('jaw_drop', {}).get('threshold', 0.25)
+
+        L_CLOSED = l_ear < (self.base_l_ear * eye_thresh)
+        R_CLOSED = r_ear < (self.base_r_ear * eye_thresh)
         L_OPEN = l_ear > (self.base_l_ear * 0.8)
         R_OPEN = r_ear > (self.base_r_ear * 0.8)
 
-        # Mouth must open 3x wider than YOUR normal resting state
-        JAW_DROPPED = mar > (self.base_mar + 0.25)
-        # Mouth must shrink to 85% of YOUR normal width
-        PUCKERED = m_ratio < (self.base_m_ratio * 0.85)
+        JAW_DROPPED = mar > (self.base_mar + jaw_thresh)
+        PUCKERED = m_ratio < (self.base_m_ratio * pucker_thresh)
 
         active_gestures = []
         if L_CLOSED and R_CLOSED:
@@ -212,6 +217,7 @@ class MouseController:
     def process_actions(self, face, hand_results=None):
         now = time.time()
         state_msgs = []
+        cal = getattr(settings, 'GESTURE_CALIBRATION', {})
 
         # 1. Detect physical gestures using the Auto-Agent
         active_gestures = self.detect_gestures(face, hand_results)
@@ -305,7 +311,7 @@ class MouseController:
         if l_click_gesture and l_click_gesture != 'none' and l_click_gesture in active_gestures:
             if self.action_states["left_click_start"] == 0:
                 self.action_states["left_click_start"] = now
-            elif now - self.action_states["left_click_start"] > 0.15:
+            elif now - self.action_states["left_click_start"] > cal.get('left_wink', {}).get('hold_duration', 0.15):
                 if not self.action_states["is_clicking"]:
                     pyautogui.click()
                     self.action_states["is_clicking"] = True
@@ -319,7 +325,7 @@ class MouseController:
         if r_click_gesture and r_click_gesture != 'none' and r_click_gesture in active_gestures:
             if self.action_states["right_click_start"] == 0:
                 self.action_states["right_click_start"] = now
-            elif now - self.action_states["right_click_start"] > 0.2:
+            elif now - self.action_states["right_click_start"] > cal.get('right_wink', {}).get('hold_duration', 0.20):
                 if now - self.action_states["last_right_click"] > 0.8:
                     pyautogui.rightClick()
                     self.action_states["last_right_click"] = now
@@ -332,7 +338,7 @@ class MouseController:
         if d_click_gesture and d_click_gesture != 'none' and d_click_gesture in active_gestures:
             if self.action_states["double_click_start"] == 0:
                 self.action_states["double_click_start"] = now
-            elif now - self.action_states["double_click_start"] > 0.2:
+            elif now - self.action_states["double_click_start"] > cal.get('pucker', {}).get('hold_duration', 0.20):
                 if now - self.action_states["last_double_click"] > 1.0:
                     pyautogui.doubleClick()
                     self.action_states["last_double_click"] = now
@@ -345,7 +351,7 @@ class MouseController:
         if media_gesture and media_gesture != 'none' and media_gesture in active_gestures:
             if self.action_states["media_pp_start"] == 0:
                 self.action_states["media_pp_start"] = now
-            elif now - self.action_states["media_pp_start"] > 0.2:
+            elif now - self.action_states["media_pp_start"] > cal.get('open_palm', {}).get('hold_duration', 0.20):
                 if now - self.action_states["last_media_pp"] > 1.5:
                     pyautogui.press('playpause')
                     self.action_states["last_media_pp"] = now

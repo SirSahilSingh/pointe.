@@ -19,7 +19,7 @@ from src.vision.face_mesh import FaceMeshDetector
 from src.vision.face_lock import FaceLockManager
 from src.controllers.mouse import MouseController
 
-eel.init('web')
+eel.init('web/dist')
 
 is_running = True
 cap = None
@@ -43,6 +43,9 @@ def get_current_settings():
     return {
         'sens_x': settings.SENSITIVITY_X,
         'sens_y': settings.SENSITIVITY_Y,
+        'smoothing': getattr(settings, 'SMOOTHING', 0.03),
+        'acceleration': getattr(settings, 'ACCELERATION', 1.6),
+        'deadzone': getattr(settings, 'DEADZONE', 0.03),
         'lclick': settings.GESTURE_MAPPINGS.get('left_click', 'left_wink'),
         'rclick': settings.GESTURE_MAPPINGS.get('right_click', 'right_wink'),
         'dclick': settings.GESTURE_MAPPINGS.get('double_click', 'pucker'),
@@ -58,7 +61,8 @@ def get_current_settings():
         'face_lock_timeout': getattr(settings, 'FACE_LOCK_TIMEOUT', 30),
         'face_lock_on_unknown': getattr(settings, 'FACE_LOCK_ON_UNKNOWN', False),
         'face_lock_faces': face_lock_mgr.get_registered_faces(),
-        'camera_source': getattr(settings, 'CAMERA_SOURCE', 0)
+        'camera_source': getattr(settings, 'CAMERA_SOURCE', 0),
+        'gesture_calibration': getattr(settings, 'GESTURE_CALIBRATION', {})
     }
 
 
@@ -79,6 +83,13 @@ def save_and_launch(config):
     # Determine camera source
     cam_source = "'phone'" if phone_cam_active else str(settings.CAMERA_INDEX)
 
+    # Gesture calibration from config
+    gcal = config.get('gesture_calibration', {})
+    gcal_str = '{\n'
+    for gname, gvals in gcal.items():
+        gcal_str += f'    "{gname}": {{"threshold": {gvals.get("threshold", 0.6)}, "hold_duration": {gvals.get("hold_duration", 0.2)}}},\n'
+    gcal_str += '}'
+
     new_settings = f"""# --- CAMERA SETTINGS ---
 CAMERA_INDEX = {settings.CAMERA_INDEX}             
 CAMERA_SOURCE = {cam_source}
@@ -89,6 +100,11 @@ FRAME_HEIGHT = {settings.FRAME_HEIGHT}
 SENSITIVITY_X = {float(config['sens_x']):.2f}         
 SENSITIVITY_Y = {float(config['sens_y']):.2f}          
 
+# --- MOVEMENT PHYSICS ---
+SMOOTHING = {float(config.get('smoothing', 0.03))}
+ACCELERATION = {float(config.get('acceleration', 1.6))}
+DEADZONE = {float(config.get('deadzone', 0.03))}
+
 # --- CUSTOM GESTURE MAPPINGS ---
 GESTURE_MAPPINGS = {{
     "left_click": "{config['lclick']}",
@@ -98,6 +114,9 @@ GESTURE_MAPPINGS = {{
     "drag_drop": "{config['drag']}",
     "scroll": "{config['scroll']}"
 }}
+
+# --- GESTURE CALIBRATION ---
+GESTURE_CALIBRATION = {gcal_str}
 
 # --- FEATURE TOGGLES ---
 MEDIA_AUTO_PAUSE = {config.get('media_auto_pause', True)}
@@ -314,65 +333,95 @@ def get_phone_camera_status():
 def stream_camera():
     global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server
 
-    # Choose camera source
-    if phone_cam_active and phone_cam_server:
-        cap = phone_cam_server.capture
-    else:
-        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-        cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
-    
-    detector = FaceMeshDetector()
+    # Wait for browser to connect and React to mount before sending frames
+    print("[stream_camera] Waiting for browser connection...")
+    eel.sleep(2.0)
+    print("[stream_camera] Starting camera stream...")
 
-    # Hand detector for palm detection
-    mp_hands = mp.solutions.hands
-    hand_detector = mp_hands.Hands(
-        static_image_mode=False,
-        max_num_hands=1,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5
-    )
+    try:
+        # Choose camera source
+        if phone_cam_active and phone_cam_server:
+            cam = getattr(phone_cam_server, 'capture', None)
+            if cam is None:
+                print("[stream_camera] Phone camera capture not ready, waiting...")
+                for _ in range(50):  # Wait up to 5s
+                    eel.sleep(0.1)
+                    cam = getattr(phone_cam_server, 'capture', None)
+                    if cam is not None:
+                        break
+            cap = cam
+        else:
+            backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+            cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
+            if not cap.isOpened():
+                print(f"[stream_camera] Failed to open camera index {settings.CAMERA_INDEX}")
+                return
 
-    # We instantiate the MouseController just to use its detection math,
-    # we will NOT call mouse.move() here, so the actual cursor stays safe!
-    mouse_referee = MouseController()
+        if cap is None:
+            print("[stream_camera] No camera source available")
+            return
+        
+        detector = FaceMeshDetector()
 
-    while is_running:
-        success, frame = cap.read()
-        if success:
-            frame, results = detector.process_frame(frame, draw=False)
-            face_detected = bool(results.multi_face_landmarks)
+        # Hand detector for palm detection
+        mp_hands = mp.solutions.hands
+        hand_detector = mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.6,
+            min_tracking_confidence=0.5
+        )
 
-            # --- Palm detection ---
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            hand_results = hand_detector.process(rgb_frame)
+        # We instantiate the MouseController just to use its detection math,
+        # we will NOT call mouse.move() here, so the actual cursor stays safe!
+        mouse_referee = MouseController()
 
-            # --- THE REFEREE LOGIC (TUTORIAL) ---
-            if is_tutorial_mode and face_detected:
-                face = results.multi_face_landmarks[0]
-
-                if not mouse_referee.is_agent_calibrated:
-                    mouse_referee.calibrate_agent(face)
-                    # Send signal to JS that calibration is done
-                    eel.tutorial_event("calibrated")()
-                else:
-                    gestures = mouse_referee.detect_gestures(face, hand_results)
-                    if gestures:
-                        # Send the first detected gesture to JS
-                        eel.tutorial_event(gestures[0])()
-                        eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
-
-            # Resize and send frame to UI
-            frame = cv2.resize(frame, (640, 360))
-            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            b64_str = base64.b64encode(buffer).decode('utf-8')
-
+        while is_running:
             try:
-                eel.updateImage(b64_str)()
-                eel.updateTelemetry(face_detected)()
+                success, frame = cap.read()
             except Exception:
-                pass
+                eel.sleep(0.1)
+                continue
+            
+            if success:
+                frame, results = detector.process_frame(frame, draw=False)
+                face_detected = bool(results.multi_face_landmarks)
 
-        eel.sleep(0.03)
+                # --- Palm detection ---
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                hand_results = hand_detector.process(rgb_frame)
+
+                # --- THE REFEREE LOGIC (TUTORIAL) ---
+                if is_tutorial_mode and face_detected:
+                    face = results.multi_face_landmarks[0]
+
+                    if not mouse_referee.is_agent_calibrated:
+                        mouse_referee.calibrate_agent(face)
+                        # Send signal to JS that calibration is done
+                        eel.tutorial_event("calibrated")()
+                    else:
+                        gestures = mouse_referee.detect_gestures(face, hand_results)
+                        if gestures:
+                            # Send the first detected gesture to JS
+                            eel.tutorial_event(gestures[0])()
+                            eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
+
+                # Resize and send frame to UI
+                frame = cv2.resize(frame, (640, 360))
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                b64_str = base64.b64encode(buffer).decode('utf-8')
+
+                try:
+                    eel.updateImage(b64_str)()
+                    eel.updateTelemetry(face_detected)()
+                except Exception:
+                    pass
+
+            eel.sleep(0.03)
+    except Exception as e:
+        print(f"[stream_camera] Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 eel.spawn(stream_camera)
