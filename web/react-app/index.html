@@ -7,6 +7,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>pointe</title>
   <script type="text/javascript" src="/eel.js"></script>
+  <script type="text/javascript">
+    // Expose Eel callbacks SYNCHRONOUSLY before React loads.
+    // Python's stream_camera calls eel.updateImage() — it must exist early.
+    // React will set the window._eel* callbacks when it mounts.
+    window._eelFrameCallback = null;
+    window._eelTelemetryCallback = null;
+    window._eelLightCallback = null;
+
+    eel.expose(updateImage);
+    function updateImage(base64Img) {
+      if (window._eelFrameCallback) window._eelFrameCallback(base64Img);
+    }
+
+    eel.expose(updateTelemetry);
+    function updateTelemetry(detected) {
+      if (window._eelTelemetryCallback) window._eelTelemetryCallback(detected);
+    }
+
+    eel.expose(updateLightWarning);
+    function updateLightWarning(isLow) {
+      if (window._eelLightCallback) window._eelLightCallback(isLow);
+    }
+  </script>
 </head>
 
 <body>

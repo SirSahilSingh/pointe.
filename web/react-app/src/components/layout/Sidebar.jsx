@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { callEel, exposeToEel } from '../../hooks/useEel'
 import LiveFeed from '../LiveFeed'
 
-export default function Sidebar({ onLaunch, onKill, engineRunning }) {
+export default function Sidebar({ onLaunch, onKill, engineRunning, className = '' }) {
     const [sysInfo, setSysInfo] = useState({ resolution: '—', platform: '—', version: '—' })
 
     useEffect(() => {
@@ -12,7 +12,7 @@ export default function Sidebar({ onLaunch, onKill, engineRunning }) {
     }, [])
 
     return (
-        <aside className="w-[320px] h-full flex flex-col gap-4 p-4 border-r border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)]">
+        <aside className={`w-[320px] h-full flex flex-col gap-4 p-4 border-r border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.01)] ${className}`}>
 
             {/* Camera Feed */}
             <LiveFeed />

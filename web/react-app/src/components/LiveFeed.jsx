@@ -11,10 +11,16 @@ export default function LiveFeed() {
     const lastFpsTime = useRef(Date.now())
 
     useEffect(() => {
+        console.log('[LiveFeed] Subscribing to frame updates...');
+
         // Subscribe to frame updates (callback was registered at module load)
         onImageFrame((base64Img) => {
             setImageSrc('data:image/jpeg;base64,' + base64Img)
             frameCount.current++
+
+            // Log first frame and every 30th frame
+            if (frameCount.current === 1) console.log('[LiveFeed] ✅ First frame received!');
+            if (frameCount.current % 30 === 0) console.log(`[LiveFeed] ${frameCount.current} frames received`);
 
             // FPS calculation
             const now = Date.now()
@@ -34,6 +40,8 @@ export default function LiveFeed() {
         onLightWarning((isLow) => {
             setLowLight(isLow)
         })
+
+        console.log('[LiveFeed] ✅ All callbacks subscribed');
     }, [])
 
     return (

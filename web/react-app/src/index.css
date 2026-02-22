@@ -457,3 +457,90 @@ body,
   animation: shimmer 1.5s ease-in-out infinite;
   border-radius: 6px;
 }
+
+/* ═══ MANDALA BACKGROUND ═══ */
+.mandala-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.mandala-img {
+  width: 90%;
+  max-width: 700px;
+  height: auto;
+  opacity: 0.06;
+  animation: mandala-rotate 120s linear infinite;
+  will-change: transform;
+  user-select: none;
+}
+
+@keyframes mandala-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mandala-img {
+    animation: none;
+  }
+}
+
+/* ═══ PRESET CARDS — Spotify / Play Store Style ═══ */
+.preset-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.preset-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
+}
+
+.preset-card.active {
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.06);
+}
+
+.preset-card-bg-icon {
+  position: absolute;
+  right: -5%;
+  bottom: -10%;
+  width: 55%;
+  height: auto;
+  opacity: 0.12;
+  transform: rotate(20deg) scale(1.2);
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.preset-card:hover .preset-card-bg-icon {
+  opacity: 0.18;
+  transform: rotate(16deg) scale(1.25);
+}
+
+.preset-card-content {
+  position: relative;
+  z-index: 2;
+}

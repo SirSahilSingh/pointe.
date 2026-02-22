@@ -332,6 +332,7 @@ def get_phone_camera_status():
 
 def stream_camera():
     global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server
+    frame_send_count = 0
 
     # Wait for browser to connect and React to mount before sending frames
     print("[stream_camera] Waiting for browser connection...")
@@ -414,7 +415,14 @@ def stream_camera():
                 try:
                     eel.updateImage(b64_str)()
                     eel.updateTelemetry(face_detected)()
-                except Exception:
+                    frame_send_count += 1
+                    if frame_send_count == 1:
+                        print("[stream_camera] ✅ First frame sent to JS successfully!")
+                    elif frame_send_count % 100 == 0:
+                        print(f"[stream_camera] {frame_send_count} frames sent")
+                except Exception as e:
+                    if frame_send_count == 0:
+                        print(f"[stream_camera] ❌ Failed to send frame to JS: {e}")
                     pass
 
             eel.sleep(0.03)

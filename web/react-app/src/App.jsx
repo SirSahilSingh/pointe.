@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { callEel, exposeToEel } from './hooks/useEel'
 import Sidebar from './components/layout/Sidebar'
 import NavBar from './components/layout/NavBar'
+import MandalaBackground from './components/MandalaBackground'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Controls from './pages/Controls'
@@ -68,15 +69,17 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#08080a]">
+    <div className="flex h-screen">
       <Sidebar
+        className="relative z-10"
         onLaunch={handleLaunch}
         onKill={handleKill}
         engineRunning={engineRunning}
       />
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="relative flex-1 flex flex-col overflow-hidden">
         <NavBar activePage={activePage} onPageChange={setActivePage} />
-        <div className={`flex-1 smooth-scroll p-6 ${PAGE_GRADIENTS[activePage] || ''}`}>
+        <div className={`relative flex-1 smooth-scroll p-6 ${PAGE_GRADIENTS[activePage] || ''}`}>
+          <MandalaBackground />
           {renderPage()}
         </div>
       </main>
