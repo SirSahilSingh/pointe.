@@ -11,6 +11,8 @@ import settings
 import numpy as np
 import mediapipe as mp
 
+from src.vision.phone_camera import PhoneCameraServer
+
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.vision.face_mesh import FaceMeshDetector
@@ -24,6 +26,8 @@ cap = None
 is_tutorial_mode = False
 engine_process = None  # Store the spawned engine process
 face_lock_mgr = FaceLockManager()
+phone_cam_server = None  # PhoneCameraServer instance
+phone_cam_active = False  # True when phone camera is the active source
 
 
 @eel.expose
@@ -53,7 +57,8 @@ def get_current_settings():
         'face_lock_enabled': getattr(settings, 'FACE_LOCK_ENABLED', False),
         'face_lock_timeout': getattr(settings, 'FACE_LOCK_TIMEOUT', 30),
         'face_lock_on_unknown': getattr(settings, 'FACE_LOCK_ON_UNKNOWN', False),
-        'face_lock_faces': face_lock_mgr.get_registered_faces()
+        'face_lock_faces': face_lock_mgr.get_registered_faces(),
+        'camera_source': getattr(settings, 'CAMERA_SOURCE', 0)
     }
 
 
@@ -69,10 +74,14 @@ def get_system_info():
 
 @eel.expose
 def save_and_launch(config):
-    global engine_process, is_running, cap
+    global engine_process, is_running, cap, phone_cam_active
+
+    # Determine camera source
+    cam_source = "'phone'" if phone_cam_active else str(settings.CAMERA_INDEX)
 
     new_settings = f"""# --- CAMERA SETTINGS ---
 CAMERA_INDEX = {settings.CAMERA_INDEX}             
+CAMERA_SOURCE = {cam_source}
 FRAME_WIDTH = {settings.FRAME_WIDTH}            
 FRAME_HEIGHT = {settings.FRAME_HEIGHT}
 
@@ -229,11 +238,88 @@ def activate_shortcut(action):
     return False
 
 
+# ─── PHONE CAMERA ENDPOINTS ────────────────────────────────
+
+@eel.expose
+def start_phone_camera():
+    """Start the phone camera server and return QR code + URL."""
+    global phone_cam_server, phone_cam_active, is_running, cap
+    try:
+        if phone_cam_server and phone_cam_server.is_running:
+            return {
+                'success': True,
+                'qr': phone_cam_server.qr_base64,
+                'url': phone_cam_server.url,
+                'status': phone_cam_server.get_status()
+            }
+
+        phone_cam_server = PhoneCameraServer()
+        phone_cam_server.start()
+        phone_cam_active = True
+
+        # Stop the webcam so phone camera can be used
+        is_running = False
+        time.sleep(0.3)
+        if cap:
+            cap.release()
+            cap = None
+
+        # Restart stream_camera with phone source
+        is_running = True
+        eel.spawn(stream_camera)
+
+        return {
+            'success': True,
+            'qr': phone_cam_server.qr_base64,
+            'url': phone_cam_server.url,
+            'status': phone_cam_server.get_status()
+        }
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
+@eel.expose
+def stop_phone_camera():
+    """Stop the phone camera server and switch back to webcam."""
+    global phone_cam_server, phone_cam_active, is_running, cap
+    phone_cam_active = False
+
+    if phone_cam_server:
+        phone_cam_server.stop()
+        phone_cam_server = None
+
+    # Restart webcam stream
+    is_running = False
+    time.sleep(0.3)
+    if cap:
+        cap.release()
+        cap = None
+
+    is_running = True
+    eel.spawn(stream_camera)
+    return {'success': True}
+
+
+@eel.expose
+def get_phone_camera_status():
+    """Return the current phone camera connection status."""
+    if phone_cam_server and phone_cam_server.is_running:
+        return {
+            'status': phone_cam_server.get_status(),
+            'url': phone_cam_server.url
+        }
+    return {'status': 'idle'}
+
+
 def stream_camera():
-    global is_running, cap, is_tutorial_mode
-    
-    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-    cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
+    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server
+
+    # Choose camera source
+    if phone_cam_active and phone_cam_server:
+        cap = phone_cam_server.capture
+    else:
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
     
     detector = FaceMeshDetector()
 

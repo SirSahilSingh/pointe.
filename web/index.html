@@ -182,6 +182,8 @@
                         onclick="switchPage('dashboard')">Dashboard</button>
                     <button class="nav-tab" data-page="settings" onclick="switchPage('settings')">Settings</button>
                     <button class="nav-tab" data-page="shortcuts" onclick="switchPage('shortcuts')">Shortcuts</button>
+                    <button class="nav-tab" data-page="phone-camera" onclick="switchPage('phone-camera')">Phone
+                        Camera</button>
                 </div>
                 <div class="nav-status">
                     <span class="nav-status-dot" id="cam-status-dot"></span>
@@ -974,6 +976,116 @@
                     </div>
                 </div>
 
+                <!-- ═══════ PHONE CAMERA ═══════ -->
+                <div class="page" id="page-phone-camera">
+                    <h1 class="page-title">Phone Camera</h1>
+                    <p class="page-subtitle">Use your phone's camera as the video source for face tracking.</p>
+
+                    <div class="phone-cam-layout">
+                        <!-- Connection Card -->
+                        <div class="glass-card phone-cam-card">
+                            <div class="card-header">
+                                <span class="card-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                                        <line x1="12" y1="18" x2="12.01" y2="18" />
+                                    </svg>
+                                    Connection
+                                </span>
+                                <span class="phone-status-badge" id="phone-status-badge">OFFLINE</span>
+                            </div>
+
+                            <div class="phone-cam-body">
+                                <!-- QR Code Area -->
+                                <div class="qr-container" id="qr-container">
+                                    <div class="qr-placeholder" id="qr-placeholder">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                            stroke-linecap="round" stroke-linejoin="round"
+                                            style="width:48px;height:48px;color:var(--text-muted);opacity:0.3;">
+                                            <rect x="3" y="3" width="7" height="7" />
+                                            <rect x="14" y="3" width="7" height="7" />
+                                            <rect x="3" y="14" width="7" height="7" />
+                                            <rect x="14" y="14" width="3" height="3" />
+                                            <line x1="21" y1="14" x2="21" y2="21" />
+                                            <line x1="14" y1="21" x2="21" y2="21" />
+                                        </svg>
+                                        <span>Click "Start" to generate QR code</span>
+                                    </div>
+                                    <img id="qr-image" class="qr-image" src="" alt="QR Code" style="display:none;">
+                                </div>
+
+                                <!-- Connection URL -->
+                                <div class="phone-url" id="phone-url" style="display:none;">
+                                    <span class="phone-url-label">Or open manually:</span>
+                                    <span class="phone-url-value" id="phone-url-value"></span>
+                                </div>
+
+                                <!-- Actions -->
+                                <div class="phone-cam-actions">
+                                    <button class="btn btn-primary" id="btn-phone-start" onclick="togglePhoneCamera()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                                            <line x1="12" y1="18" x2="12.01" y2="18" />
+                                        </svg>
+                                        Start Phone Camera
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Instructions -->
+                        <div class="glass-card phone-cam-card">
+                            <div class="card-header">
+                                <span class="card-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="12" y1="16" x2="12" y2="12" />
+                                        <line x1="12" y1="8" x2="12.01" y2="8" />
+                                    </svg>
+                                    How to Connect
+                                </span>
+                            </div>
+                            <div class="phone-cam-steps">
+                                <div class="phone-step">
+                                    <span class="phone-step-num">1</span>
+                                    <div class="phone-step-content">
+                                        <span class="phone-step-title">Same Network</span>
+                                        <span class="phone-step-desc">Connect your phone and PC to the same WiFi
+                                            network</span>
+                                    </div>
+                                </div>
+                                <div class="phone-step">
+                                    <span class="phone-step-num">2</span>
+                                    <div class="phone-step-content">
+                                        <span class="phone-step-title">Scan QR Code</span>
+                                        <span class="phone-step-desc">Open your phone's camera or QR scanner and scan
+                                            the code</span>
+                                    </div>
+                                </div>
+                                <div class="phone-step">
+                                    <span class="phone-step-num">3</span>
+                                    <div class="phone-step-content">
+                                        <span class="phone-step-title">Allow Camera</span>
+                                        <span class="phone-step-desc">Grant camera permission when prompted in the
+                                            browser</span>
+                                    </div>
+                                </div>
+                                <div class="phone-step">
+                                    <span class="phone-step-num">4</span>
+                                    <div class="phone-step-content">
+                                        <span class="phone-step-title">Ready</span>
+                                        <span class="phone-step-desc">The webcam feed will switch to your phone's camera
+                                            automatically</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <!-- Footer -->
@@ -1689,6 +1801,88 @@
         };
 
         loadCurrentSettings();
+
+        /* ─── PHONE CAMERA ─── */
+        let phoneCamRunning = false;
+        let phoneStatusPoll = null;
+
+        async function togglePhoneCamera() {
+            const btn = document.getElementById('btn-phone-start');
+            if (phoneCamRunning) {
+                btn.disabled = true;
+                btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Stopping...';
+                try {
+                    await eel.stop_phone_camera()();
+                } catch (e) { }
+                phoneCamRunning = false;
+                stopPhoneStatusPoll();
+                document.getElementById('qr-image').style.display = 'none';
+                document.getElementById('qr-placeholder').style.display = 'flex';
+                document.getElementById('phone-url').style.display = 'none';
+                setPhoneStatus('offline');
+                btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg> Start Phone Camera';
+                btn.className = 'btn btn-primary';
+                btn.disabled = false;
+            } else {
+                btn.disabled = true;
+                btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Starting...';
+                try {
+                    const result = await eel.start_phone_camera()();
+                    if (result && result.success) {
+                        phoneCamRunning = true;
+                        document.getElementById('qr-image').src = 'data:image/png;base64,' + result.qr;
+                        document.getElementById('qr-image').style.display = 'block';
+                        document.getElementById('qr-placeholder').style.display = 'none';
+                        document.getElementById('phone-url-value').innerText = result.url;
+                        document.getElementById('phone-url').style.display = 'flex';
+                        setPhoneStatus('waiting');
+                        startPhoneStatusPoll();
+                        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Disconnect';
+                        btn.className = 'btn btn-danger';
+                    } else {
+                        alert('Failed to start phone camera: ' + (result ? result.error : 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Failed to start phone camera server.');
+                }
+                btn.disabled = false;
+            }
+        }
+
+        function setPhoneStatus(status) {
+            const badge = document.getElementById('phone-status-badge');
+            badge.className = 'phone-status-badge';
+            if (status === 'streaming') {
+                badge.innerText = 'STREAMING';
+                badge.classList.add('streaming');
+            } else if (status === 'connected') {
+                badge.innerText = 'CONNECTED';
+                badge.classList.add('connected');
+            } else if (status === 'waiting') {
+                badge.innerText = 'WAITING';
+                badge.classList.add('waiting');
+            } else {
+                badge.innerText = 'OFFLINE';
+                badge.classList.add('offline');
+            }
+        }
+
+        function startPhoneStatusPoll() {
+            stopPhoneStatusPoll();
+            phoneStatusPoll = setInterval(async () => {
+                try {
+                    const r = await eel.get_phone_camera_status()();
+                    if (r) setPhoneStatus(r.status);
+                } catch (e) { }
+            }, 1500);
+        }
+
+        function stopPhoneStatusPoll() {
+            if (phoneStatusPoll) {
+                clearInterval(phoneStatusPoll);
+                phoneStatusPoll = null;
+            }
+        }
     </script>
 
     <style>

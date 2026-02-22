@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>pointe — Phone Camera</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #f0ece4;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding: 24px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .brand {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #c8b89a;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #a09888;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #fbbf24;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .status-dot.connected {
+            background: #4ade80;
+        }
+
+        .status-dot.error {
+            background: #f87171;
+            animation: none;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 3/4;
+            background: #111;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid #242424;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        canvas {
+            display: none;
+        }
+
+        .overlay-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            padding: 4px 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            color: #4ade80;
+        }
+
+        .fps-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 4px 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #c8b89a;
+        }
+
+        .info {
+            font-size: 11px;
+            color: #5a5248;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .error-msg {
+            color: #f87171;
+            font-size: 12px;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="brand">pointe</div>
+
+        <div class="status">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Connecting...</span>
+        </div>
+
+        <div class="video-wrapper">
+            <video id="video" autoplay playsinline muted></video>
+            <span class="overlay-badge" id="stream-badge">CONNECTING</span>
+            <span class="fps-badge" id="fps-badge">0 fps</span>
+        </div>
+
+        <canvas id="canvas"></canvas>
+
+        <div class="error-msg" id="error-msg"></div>
+
+        <div class="info">
+            Keep this page open to stream your camera.<br>
+            Do not switch to another app.
+        </div>
+    </div>
+
+    <script>
+        const WS_URL = "__WS_URL__";
+        const TARGET_FPS = 25;
+        const JPEG_QUALITY = 0.7;
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const streamBadge = document.getElementById('stream-badge');
+        const fpsBadge = document.getElementById('fps-badge');
+        const errorMsg = document.getElementById('error-msg');
+
+        let ws = null;
+        let streamInterval = null;
+        let framesSent = 0;
+        let reconnectDelay = 1000;
+
+        // ── Camera ──────────────────────────────────
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                });
+                video.srcObject = stream;
+                await video.play();
+
+                // Set canvas to actual video dimensions
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                });
+
+                // Fallback dimensions
+                canvas.width = 640;
+                canvas.height = 480;
+
+                connectWS();
+            } catch (err) {
+                showError('Camera access denied. Please allow camera permission and reload.');
+            }
+        }
+
+        // ── WebSocket ───────────────────────────────
+
+        function connectWS() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
+
+            try {
+                ws = new WebSocket(WS_URL);
+                ws.binaryType = 'arraybuffer';
+
+                ws.onopen = () => {
+                    reconnectDelay = 1000;
+                    setStatus('connected', 'Streaming to pointe');
+                    streamBadge.innerText = 'LIVE';
+                    startStreaming();
+                };
+
+                ws.onclose = () => {
+                    setStatus('waiting', 'Disconnected — reconnecting...');
+                    streamBadge.innerText = 'RECONNECTING';
+                    stopStreaming();
+                    setTimeout(connectWS, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
+                };
+
+                ws.onerror = () => {
+                    ws.close();
+                };
+            } catch (e) {
+                setTimeout(connectWS, reconnectDelay);
+            }
+        }
+
+        // ── Frame Streaming ─────────────────────────
+
+        function startStreaming() {
+            if (streamInterval) return;
+            const interval = 1000 / TARGET_FPS;
+
+            streamInterval = setInterval(() => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                if (video.readyState < 2) return;
+
+                // Update canvas size if needed
+                if (canvas.width !== video.videoWidth && video.videoWidth > 0) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                }
+
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                canvas.toBlob((blob) => {
+                    if (blob && ws && ws.readyState === WebSocket.OPEN) {
+                        blob.arrayBuffer().then(buffer => {
+                            ws.send(buffer);
+                            framesSent++;
+                        });
+                    }
+                }, 'image/jpeg', JPEG_QUALITY);
+            }, interval);
+        }
+
+        function stopStreaming() {
+            if (streamInterval) {
+                clearInterval(streamInterval);
+                streamInterval = null;
+            }
+        }
+
+        // ── FPS counter ─────────────────────────────
+
+        setInterval(() => {
+            fpsBadge.innerText = framesSent + ' fps';
+            framesSent = 0;
+        }, 1000);
+
+        // ── Helpers ─────────────────────────────────
+
+        function setStatus(type, text) {
+            statusDot.className = 'status-dot' + (type === 'connected' ? ' connected' : type === 'error' ? ' error' : '');
+            statusText.innerText = text;
+        }
+
+        function showError(msg) {
+            errorMsg.innerText = msg;
+            errorMsg.style.display = 'block';
+            setStatus('error', 'Error');
+            streamBadge.innerText = 'ERROR';
+        }
+
+        // ── Prevent sleep on mobile ─────────────────
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (e) { }
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        });
+
+        // ── Init ────────────────────────────────────
+        requestWakeLock();
+        startCamera();
+    </script>
+</body>
+
+</html>

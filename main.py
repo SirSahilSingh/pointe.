@@ -47,12 +47,21 @@ def main():
 
     # Decide source
     source = settings.CAMERA_INDEX
-    
-    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-    cap = cv2.VideoCapture(source, backend)
+    camera_source = getattr(settings, 'CAMERA_SOURCE', 0)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, settings.FRAME_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.FRAME_HEIGHT)
+    if camera_source == 'phone':
+        # Use the phone camera's BufferlessCapture
+        from src.vision.phone_camera import PhoneCameraServer
+        # Connect to the already-running server started by dashboard
+        phone_server = PhoneCameraServer()
+        phone_server.start()
+        cap = phone_server.capture
+        print("[SYSTEM] Using phone camera as video source.")
+    else:
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        cap = cv2.VideoCapture(source, backend)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, settings.FRAME_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.FRAME_HEIGHT)
 
     detector = FaceMeshDetector()
     parallax = ParallaxController(settings.SENSITIVITY_X, settings.SENSITIVITY_Y)
