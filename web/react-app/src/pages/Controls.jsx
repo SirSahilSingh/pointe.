@@ -62,10 +62,8 @@ function GestureLottieThumbnail({ lottieFile, mirror, color }) {
 
     return (
         <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center border transition-all duration-200 overflow-hidden"
+            className="w-14 h-14 flex items-center justify-center transition-all duration-200 overflow-visible"
             style={{
-                background: `${color}10`,
-                borderColor: `${color}25`,
                 transform: mirror ? 'scaleX(-1)' : 'none',
             }}
         >

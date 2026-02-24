@@ -133,18 +133,23 @@ FACE_LOCK_ON_UNKNOWN = {config.get('face_lock_on_unknown', False)}
     settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.py")
     with open(settings_path, "w") as f: f.write(new_settings)
 
-    # STOP the dashboard camera so the engine can use it
-    is_running = False
-    time.sleep(0.3)  # Let stream_camera loop exit
+    # STOP the local OpenCV capture so the engine can use the camera
+    # but DO NOT kill the stream_camera loop (is_running stays True)!
     if cap:
         cap.release()
         cap = None
+
+    # Free up phone server ports for main.py
+    global phone_cam_server
+    if phone_cam_active and phone_cam_server:
+        phone_cam_server.stop()
+        phone_cam_server = None
 
     print("[SYSTEM] Settings Saved. Booting pointe...")
     project_dir = os.path.dirname(os.path.abspath(__file__))
     engine_process = subprocess.Popen([sys.executable, "main.py"], cwd=project_dir)
 
-    # Notify the JS frontend (dashboard stays open!)
+    # Notify the JS frontend
     try:
         eel.engine_launched()()
     except Exception:
@@ -236,8 +241,8 @@ def delete_face(face_id):
 
 @eel.expose
 def get_registered_faces():
-    """Return list of registered face IDs."""
-    return [{'id': fid} for fid in face_lock_mgr.registered_faces]
+    """Return list of registered face IDs and thumbnails."""
+    return face_lock_mgr.get_registered_faces()
 
 
 @eel.expose
@@ -339,6 +344,11 @@ def stream_camera():
     eel.sleep(2.0)
     print("[stream_camera] Starting camera stream...")
 
+    import socket
+    import json
+    ipc_conn = None
+    buffer_str = ""
+
     try:
         # Choose camera source
         if phone_cam_active and phone_cam_server:
@@ -378,6 +388,44 @@ def stream_camera():
         mouse_referee = MouseController()
 
         while is_running:
+            # --- IPC FEED IF ENGINE IS RUNNING ---
+            if engine_process and engine_process.poll() is None:
+                try:
+                    if not ipc_conn:
+                        ipc_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        ipc_conn.connect(('127.0.0.1', 11337))
+                        ipc_conn.setblocking(False)
+                        buffer_str = ""
+                    
+                    try:
+                        data = ipc_conn.recv(4096 * 1024).decode('utf-8')
+                        if data: buffer_str += data
+                        else: raise ConnectionError()
+                    except BlockingIOError:
+                        eel.sleep(0.01)
+                        continue
+                        
+                    if "\n" in buffer_str:
+                        lines = buffer_str.split("\n")
+                        buffer_str = lines.pop() # Keep the remainder
+                        if lines:
+                            latest_json = lines[-1]
+                            if latest_json.strip():
+                                data_obj = json.loads(latest_json)
+                                eel.updateImage(data_obj["frame"])()
+                                eel.updateTelemetry(data_obj["face_detected"])()
+                except Exception:
+                    if ipc_conn:
+                        ipc_conn.close()
+                        ipc_conn = None
+                    eel.sleep(0.1)
+                continue
+
+            # --- LOCAL CAPTURE IF ENGINE IS OFF ---
+            if cap is None:
+                eel.sleep(0.1)
+                continue
+
             try:
                 success, frame = cap.read()
             except Exception:

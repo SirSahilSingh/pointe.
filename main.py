@@ -45,6 +45,16 @@ def main():
     print("  Ctrl+C -> Recalibrate Face")
     print("  Ctrl+Q -> Quit Engine\n")
 
+    import socket
+    import json
+    import base64
+    IPC_PORT = 11337
+    ipc_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    ipc_server.bind(('127.0.0.1', IPC_PORT))
+    ipc_server.listen(1)
+    ipc_server.setblocking(False)
+    client_conn = None
+
     # Decide source
     source = settings.CAMERA_INDEX
     camera_source = getattr(settings, 'CAMERA_SOURCE', 0)
@@ -175,10 +185,32 @@ def main():
                 secs = lock_result.split(':')[1]
                 hud.show_message(f'LOCKING IN {secs}...', 15)
 
-        # 6. Update UI Overlay (replaces cv2.imshow)
+        # 6. IPC Broadcast for Dashboard
+        try:
+            conn, _ = ipc_server.accept()
+            conn.setblocking(False)
+            if client_conn: client_conn.close()
+            client_conn = conn
+        except BlockingIOError:
+            pass
+
+        if client_conn:
+            try:
+                frame_ui = cv2.resize(img, (640, 360))
+                _, buffer = cv2.imencode('.jpg', frame_ui, [cv2.IMWRITE_JPEG_QUALITY, 55])
+                b64_str = base64.b64encode(buffer).decode('utf-8')
+                payload = json.dumps({"frame": b64_str, "face_detected": bool(results.multi_face_landmarks)}) + "\n"
+                client_conn.sendall(payload.encode('utf-8'))
+            except Exception:
+                client_conn.close()
+                client_conn = None
+
+        # 7. Update UI Overlay (replaces cv2.imshow)
         hud.update()
 
     cap.release()
+    if client_conn: client_conn.close()
+    ipc_server.close()
     hand_detector.close()
     sys.exit(0)
 

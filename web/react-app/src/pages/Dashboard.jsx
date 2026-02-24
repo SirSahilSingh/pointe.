@@ -67,14 +67,7 @@ const icons = {
     ),
 }
 
-export default function Dashboard() {
-    const [settings, setSettings] = useState(null)
-
-    useEffect(() => {
-        callEel('get_current_settings').then(s => {
-            if (s) setSettings(s)
-        })
-    }, [])
+export default function Dashboard({ config: settings }) {
 
     const presetName = settings ? (() => {
         const presets = {

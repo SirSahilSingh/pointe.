@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import GlassCard from '../components/layout/GlassCard'
 import { LotusDivider, HeaderOrnament } from '../components/IndianOrnaments'
 import { PRESETS, DEFAULT_CUSTOM, GESTURES, GESTURE_ACTIONS, DEFAULT_GESTURE_CALIBRATION } from '../data/presets'
+import FaceRegistry from '../components/FaceRegistry'
 
 function Toggle({ value, onChange }) {
     return (
@@ -95,7 +96,7 @@ const PRESET_ICONS = {
     ),
 }
 
-export default function Settings({ config, setConfig }) {
+export default function Settings({ config, setConfig, engineRunning }) {
     const [activePreset, setActivePreset] = useState('productivity')
     const [customValues, setCustomValues] = useState(DEFAULT_CUSTOM)
     const [presetOpen, setPresetOpen] = useState(false)
@@ -201,9 +202,8 @@ export default function Settings({ config, setConfig }) {
                                 </svg>
 
                                 {/* Content overlay — stays above watermark */}
-                                <span className="preset-card-content">{PRESET_ICONS[preset.id]?.(preset.accentColor)}</span>
-                                <span className="preset-card-content text-[12px] font-semibold text-[#f0f0f0] truncate w-full">{preset.name}</span>
-                                <span className="preset-card-content text-[10px] text-[#5a5a65] truncate w-full">{preset.description}</span>
+                                <span className="preset-card-content text-[15px] font-bold text-[#f0f0f0] truncate w-full text-left">{preset.name}</span>
+                                <span className="preset-card-content text-[11px] text-[#5a5a65] truncate w-full text-left">{preset.description}</span>
                             </button>
                         ))}
                         {/* Custom chip */}
@@ -222,9 +222,8 @@ export default function Settings({ config, setConfig }) {
                                 <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z" />
                             </svg>
 
-                            <span className="preset-card-content">{PRESET_ICONS.custom('#a0a0a8')}</span>
-                            <span className="preset-card-content text-[12px] font-semibold text-[#f0f0f0]">Custom</span>
-                            <span className="preset-card-content text-[10px] text-[#5a5a65]">Your own config</span>
+                            <span className="preset-card-content text-[15px] font-bold text-[#f0f0f0] text-left">Custom</span>
+                            <span className="preset-card-content text-[11px] text-[#5a5a65] text-left">Your own config</span>
                         </button>
                     </div>
 
@@ -277,8 +276,18 @@ export default function Settings({ config, setConfig }) {
             </GlassCard>
 
             {/* ─── GESTURE MAPPINGS ─── */}
-            <GlassCard hover={false}>
-                <div className="flex flex-col gap-4">
+            <GlassCard hover={false} className="relative overflow-hidden">
+                {!config.mouse_control_enabled && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#08080a]/80 backdrop-blur-sm">
+                        <div className="px-4 py-2 rounded-full bg-[rgba(255,255,255,0.06)] border border-[rgba(255,255,255,0.1)] flex items-center gap-2">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-white">
+                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+                            </svg>
+                            <span className="text-[12px] font-medium text-white">Activate mouse toggle to map gestures on that section.</span>
+                        </div>
+                    </div>
+                )}
+                <div className={`flex flex-col gap-4 ${!config.mouse_control_enabled ? 'opacity-30 pointer-events-none filter grayscale' : ''}`}>
                     <div className="flex items-center gap-2">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#a0a0a8]">
                             <path d="M18 8V6a2 2 0 00-2-2H4a2 2 0 00-2 2v7a2 2 0 002 2h8" /><path d="M15 15l3.5 3.5M20 12a8 8 0 11-16 0 8 8 0 0116 0z" />
@@ -287,7 +296,7 @@ export default function Settings({ config, setConfig }) {
                     </div>
 
                     <div className="flex flex-col gap-1">
-                        {GESTURE_ACTIONS.map(action => (
+                        {GESTURE_ACTIONS.filter(a => a.key !== 'scroll').map(action => (
                             <SelectRow
                                 key={action.id}
                                 label={action.label}
@@ -375,6 +384,26 @@ export default function Settings({ config, setConfig }) {
                     <SettingRow label="Scroll Mode" description="Enable both-eyes-closed scroll gesture">
                         <Toggle value={config.scroll_enabled} onChange={v => setConfig(p => ({ ...p, scroll_enabled: v }))} />
                     </SettingRow>
+                    <AnimatePresence>
+                        {config.scroll_enabled && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden pl-4 border-l-2 border-[rgba(255,255,255,0.04)] ml-2 mb-2"
+                            >
+                                <div className="py-2">
+                                    <SelectRow
+                                        label="Scroll Gesture"
+                                        value={config.scroll || 'none'}
+                                        onChange={v => setConfig(prev => ({ ...prev, scroll: v }))}
+                                        options={GESTURES}
+                                    />
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                     <SettingRow label="Media Auto-Pause" description="Pause media when you look away">
                         <Toggle value={config.media_auto_pause} onChange={v => setConfig(p => ({ ...p, media_auto_pause: v }))} />
                     </SettingRow>
@@ -412,6 +441,8 @@ export default function Settings({ config, setConfig }) {
                             <SettingRow label="Lock on Unknown Face" description="Lock when an unregistered face is detected">
                                 <Toggle value={config.face_lock_on_unknown} onChange={v => setConfig(p => ({ ...p, face_lock_on_unknown: v }))} />
                             </SettingRow>
+
+                            <FaceRegistry engineRunning={engineRunning} />
                         </>
                     )}
                 </div>

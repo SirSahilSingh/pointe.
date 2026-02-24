@@ -61,10 +61,10 @@ export default function App() {
 
   const renderPage = () => {
     switch (activePage) {
-      case 'settings': return <Settings config={config} setConfig={setConfig} />
+      case 'settings': return <Settings config={config} setConfig={setConfig} engineRunning={engineRunning} />
       case 'controls': return <Controls />
       case 'phone-camera': return <PhoneCamera />
-      default: return <Dashboard />
+      default: return <Dashboard config={config} />
     }
   }
 

@@ -51,9 +51,9 @@ export default function Sidebar({ onLaunch, onKill, engineRunning, className = '
                 ) : (
                     <button
                         onClick={onKill}
-                        className="btn-danger w-full justify-center"
+                        className="w-full justify-center flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-300 bg-[rgba(74,222,128,0.15)] border border-[rgba(74,222,128,0.4)] text-[#4ade80] shadow-[0_0_15px_rgba(74,222,128,0.25)] hover:bg-[rgba(74,222,128,0.25)] hover:shadow-[0_0_20px_rgba(74,222,128,0.35)]"
                     >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                             <rect x="6" y="6" width="12" height="12" rx="1" />
                         </svg>
                         Stop Engine
