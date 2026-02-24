@@ -80,8 +80,11 @@ def get_system_info():
 def save_and_launch(config):
     global engine_process, is_running, cap, phone_cam_active
 
-    # Determine camera source
-    cam_source = "'phone'" if phone_cam_active else str(settings.CAMERA_INDEX)
+    # Determine camera source literal for settings.py
+    if phone_cam_active:
+        cam_source_literal = "'phone'"
+    else:
+        cam_source_literal = settings.CAMERA_INDEX
 
     # Gesture calibration from config
     gcal = config.get('gesture_calibration', {})
@@ -92,7 +95,7 @@ def save_and_launch(config):
 
     new_settings = f"""# --- CAMERA SETTINGS ---
 CAMERA_INDEX = {settings.CAMERA_INDEX}             
-CAMERA_SOURCE = {cam_source}
+CAMERA_SOURCE = {cam_source_literal}
 FRAME_WIDTH = {settings.FRAME_WIDTH}            
 FRAME_HEIGHT = {settings.FRAME_HEIGHT}
 
@@ -455,9 +458,10 @@ def stream_camera():
                             eel.tutorial_event(gestures[0])()
                             eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
 
-                # Resize and send frame to UI
-                frame = cv2.resize(frame, (640, 360))
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                # Resize and send mirrored frame to UI (always mirror for user preview)
+                display_frame = cv2.flip(frame, 1)
+                display_frame = cv2.resize(display_frame, (640, 360))
+                _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 b64_str = base64.b64encode(buffer).decode('utf-8')
 
                 try:

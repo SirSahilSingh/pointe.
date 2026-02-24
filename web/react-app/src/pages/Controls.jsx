@@ -75,7 +75,9 @@ function GestureLottieThumbnail({ lottieFile, mirror, color }) {
                     style={{ width: 42, height: 42 }}
                 />
             ) : (
-                <div className="w-8 h-8 rounded-full animate-pulse" style={{ background: `${color}15` }} />
+                <div
+                    className="w-8 h-8 rounded-full animate-pulse bg-[rgba(255,255,255,0.06)]"
+                />
             )}
         </div>
     )

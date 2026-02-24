@@ -76,7 +76,7 @@ export default function App() {
         onKill={handleKill}
         engineRunning={engineRunning}
       />
-      <main className="relative flex-1 flex flex-col overflow-hidden">
+      <main className="relative flex-1 flex flex-col overflow-hidden z-10">
         <NavBar activePage={activePage} onPageChange={setActivePage} />
         <div className={`relative flex-1 smooth-scroll p-6 ${PAGE_GRADIENTS[activePage] || ''}`}>
           <MandalaBackground />

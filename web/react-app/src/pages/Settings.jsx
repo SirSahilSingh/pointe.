@@ -170,7 +170,10 @@ export default function Settings({ config, setConfig, engineRunning }) {
             </div>
 
             {/* ─── SENSITIVITY PRESETS ─── */}
-            <GlassCard hover={false}>
+            <GlassCard
+                hover={false}
+                className="bg-[#111113]/95 border-[rgba(255,255,255,0.12)]"
+            >
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">

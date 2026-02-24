@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { onImageFrame, onTelemetry, onLightWarning } from '../hooks/useEel'
+import { JaliPattern } from './IndianOrnaments'
 
 export default function LiveFeed() {
     const [imageSrc, setImageSrc] = useState(null)
@@ -54,7 +55,7 @@ export default function LiveFeed() {
                         src={imageSrc}
                         alt="Camera Feed"
                         className="w-full h-full object-cover transition-opacity duration-300"
-                        style={{ opacity: imageSrc ? 1 : 0, transform: 'scaleX(-1)' }}
+                        style={{ opacity: imageSrc ? 1 : 0 }}
                         draggable={false}
                     />
                 ) : (
@@ -102,7 +103,7 @@ export default function LiveFeed() {
                 </div>
 
                 {/* Light OK Visual Indicator (Brightness Bar) */}
-                <div className={`flex-[1.5] w-full flex flex-col justify-center gap-1.5 px-3 py-2.5 rounded-xl border transition-colors ${lowLight
+                <div className={`relative overflow-hidden flex-[1.5] w-full flex flex-col justify-center gap-1.5 px-3 py-2.5 rounded-xl border transition-colors ${lowLight
                     ? 'bg-[rgba(251,191,36,0.04)] border-[rgba(251,191,36,0.15)]'
                     : 'bg-[rgba(255,255,255,0.02)] border-[rgba(255,255,255,0.04)]'
                     }`}>
@@ -122,6 +123,8 @@ export default function LiveFeed() {
                             }}
                         />
                     </div>
+                    {/* Subtle Indian jali motif in the corner */}
+                    <JaliPattern color={lowLight ? 'rgba(251,191,36,0.08)' : 'rgba(74,222,128,0.06)'} width={120} height={40} />
                 </div>
             </div>
         </div>

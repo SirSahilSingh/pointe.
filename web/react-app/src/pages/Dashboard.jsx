@@ -76,9 +76,10 @@ export default function Dashboard({ config: settings }) {
         return presets[settings.sens_x] || 'Custom'
     })() : '—'
 
-    const gestureCount = settings ? Object.values(settings).filter((v, i) =>
-        ['lclick', 'rclick', 'dclick', 'media_pp', 'drag', 'scroll'].some(k => settings[k] && settings[k] !== 'none')
-    ).length : 0
+    const gestureCount = settings
+        ? ['lclick', 'rclick', 'dclick', 'media_pp', 'drag', 'scroll']
+            .filter(key => settings[key] && settings[key] !== 'none').length
+        : 0
 
     return (
         <div className="animate-in flex flex-col gap-6">
@@ -107,7 +108,7 @@ export default function Dashboard({ config: settings }) {
                             {icons.gesture}
                             <span className="label">Gestures</span>
                         </div>
-                        <span className="heading-lg">6</span>
+                        <span className="heading-lg">{gestureCount}</span>
                         <span className="text-[10px] text-[#5a5a65]">Mapped face + hand actions</span>
                     </div>
                 </GlassCard>
