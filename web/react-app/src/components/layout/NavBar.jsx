@@ -47,7 +47,7 @@ export default function NavBar({ activePage, onPageChange }) {
 
             {/* Brand — logo */}
             <div className="flex items-center gap-2.5">
-                <img src="./logo.png" alt="pointe" className="h-14 w-auto opacity-90" />
+                <img src="/logo.png" alt="pointe" className="h-14 w-auto opacity-90" />
             </div>
         </nav>
     )

@@ -62,7 +62,7 @@ function GestureLottieThumbnail({ lottieFile, mirror, color }) {
 
     return (
         <div
-            className="w-14 h-14 flex items-center justify-center transition-all duration-200 overflow-visible"
+            className="w-14 h-14 flex items-center justify-center overflow-visible"
             style={{
                 transform: mirror ? 'scaleX(-1)' : 'none',
             }}
@@ -76,7 +76,8 @@ function GestureLottieThumbnail({ lottieFile, mirror, color }) {
                 />
             ) : (
                 <div
-                    className="w-8 h-8 rounded-full animate-pulse bg-[rgba(255,255,255,0.06)]"
+                    className="w-8 h-8 rounded-full animate-pulse"
+                    style={{ background: 'transparent' }}
                 />
             )}
         </div>

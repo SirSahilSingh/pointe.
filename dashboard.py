@@ -19,7 +19,11 @@ from src.vision.face_mesh import FaceMeshDetector
 from src.vision.face_lock import FaceLockManager
 from src.controllers.mouse import MouseController
 
-eel.init('web/dist')
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+WEB_DIST_DIR = os.path.join(PROJECT_DIR, 'web', 'dist')
+eel.init(WEB_DIST_DIR)
+print(f"[SYSTEM] Serving UI from: {WEB_DIST_DIR}")
+print(f"[SYSTEM] CWD: {os.getcwd()}")
 
 is_running = True
 cap = None
@@ -142,15 +146,21 @@ FACE_LOCK_ON_UNKNOWN = {config.get('face_lock_on_unknown', False)}
         cap.release()
         cap = None
 
-    # Free up phone server ports for main.py
+    # Free up phone server ports for main.py to start its own server
     global phone_cam_server
     if phone_cam_active and phone_cam_server:
         phone_cam_server.stop()
         phone_cam_server = None
+        # Wait for OS to release the ports before engine starts
+        time.sleep(1.5)
 
     print("[SYSTEM] Settings Saved. Booting pointe...")
     project_dir = os.path.dirname(os.path.abspath(__file__))
     engine_process = subprocess.Popen([sys.executable, "main.py"], cwd=project_dir)
+
+    # Give engine time to start its phone camera server before IPC begins
+    if phone_cam_active:
+        time.sleep(3.0)
 
     # Notify the JS frontend
     try:
@@ -162,7 +172,7 @@ FACE_LOCK_ON_UNKNOWN = {config.get('face_lock_on_unknown', False)}
 @eel.expose
 def kill_engine():
     """Kill the running engine process and restart dashboard camera."""
-    global engine_process, is_running
+    global engine_process, is_running, phone_cam_server, phone_cam_active
     if engine_process and engine_process.poll() is None:
         try:
             engine_process.terminate()
@@ -171,6 +181,13 @@ def kill_engine():
             engine_process.kill()
         engine_process = None
         print("[SYSTEM] Engine terminated.")
+
+        # If phone camera was active, restart the phone camera server
+        if phone_cam_active and phone_cam_server is None:
+            time.sleep(1.0)  # Let engine release the ports
+            phone_cam_server = PhoneCameraServer()
+            phone_cam_server.start()
+            print("[SYSTEM] Phone camera server restarted.")
 
         # Restart dashboard camera stream
         is_running = True
@@ -396,9 +413,18 @@ def stream_camera():
                 try:
                     if not ipc_conn:
                         ipc_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        ipc_conn.connect(('127.0.0.1', 11337))
-                        ipc_conn.setblocking(False)
-                        buffer_str = ""
+                        ipc_conn.settimeout(2.0)
+                        try:
+                            ipc_conn.connect(('127.0.0.1', 11337))
+                            ipc_conn.setblocking(False)
+                            buffer_str = ""
+                            print("[stream_camera] IPC connected to engine.")
+                        except (ConnectionRefusedError, OSError):
+                            # Engine hasn't started IPC server yet, retry later
+                            ipc_conn.close()
+                            ipc_conn = None
+                            eel.sleep(1.0)
+                            continue
                     
                     try:
                         data = ipc_conn.recv(4096 * 1024).decode('utf-8')
@@ -421,7 +447,7 @@ def stream_camera():
                     if ipc_conn:
                         ipc_conn.close()
                         ipc_conn = None
-                    eel.sleep(0.1)
+                    eel.sleep(0.5)
                 continue
 
             # --- LOCAL CAPTURE IF ENGINE IS OFF ---
