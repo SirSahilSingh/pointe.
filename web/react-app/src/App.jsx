@@ -1,19 +1,11 @@
 import { useState, useEffect } from 'react'
 import { callEel, exposeToEel } from './hooks/useEel'
 import Sidebar from './components/layout/Sidebar'
-import NavBar from './components/layout/NavBar'
-import MandalaBackground from './components/MandalaBackground'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Controls from './pages/Controls'
 import PhoneCamera from './pages/PhoneCamera'
-
-const PAGE_GRADIENTS = {
-  dashboard: 'page-gradient-dashboard',
-  settings: 'page-gradient-settings',
-  controls: 'page-gradient-controls',
-  'phone-camera': 'page-gradient-phone',
-}
+import Search from './pages/Search'
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
@@ -64,22 +56,27 @@ export default function App() {
       case 'settings': return <Settings config={config} setConfig={setConfig} engineRunning={engineRunning} />
       case 'controls': return <Controls />
       case 'phone-camera': return <PhoneCamera />
-      default: return <Dashboard config={config} />
+      case 'search': return <Search />
+      default: return (
+        <Dashboard
+          config={config}
+          engineRunning={engineRunning}
+          onLaunch={handleLaunch}
+          onKill={handleKill}
+        />
+      )
     }
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen" style={{ background: 'var(--color-bg-base)' }}>
       <Sidebar
-        className="relative z-10"
-        onLaunch={handleLaunch}
-        onKill={handleKill}
-        engineRunning={engineRunning}
+        activePage={activePage}
+        onPageChange={setActivePage}
+        className="relative z-30"
       />
-      <main className="relative flex-1 flex flex-col overflow-hidden z-10">
-        <NavBar activePage={activePage} onPageChange={setActivePage} />
-        <div className={`relative flex-1 smooth-scroll p-6 ${PAGE_GRADIENTS[activePage] || ''}`}>
-          <MandalaBackground />
+      <main className="relative flex-1 flex flex-col overflow-hidden z-10" style={{ transition: 'flex 250ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
+        <div className="relative flex-1 smooth-scroll p-6">
           {renderPage()}
         </div>
       </main>

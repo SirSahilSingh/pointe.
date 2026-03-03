@@ -1,223 +1,333 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { callEel } from '../hooks/useEel'
-import GlassCard from '../components/layout/GlassCard'
-import { LotusDivider, HeaderOrnament, JaliPattern } from '../components/IndianOrnaments'
+import LiveFeed from '../components/LiveFeed'
+import StarBorder from '../components/animations/StarBorder'
+import ElectricBorder from '../components/animations/ElectricBorder'
+import GradientText from '../components/animations/GradientText'
+import AnimatedDropdown from '../components/animations/AnimatedDropdown'
+import ThemeToggle from '../components/ThemeToggle'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { Notification01Icon } from '@hugeicons/core-free-icons'
 
-// Clean SVG icon components
-const icons = {
-    activity: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#4ade80]">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-        </svg>
-    ),
-    gesture: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#818cf8]">
-            <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
-        </svg>
-    ),
-    cpu: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#fbbf24]">
-            <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-        </svg>
-    ),
-    camera: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#f472b6]">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" />
-        </svg>
-    ),
-    shield: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#34d399]">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        </svg>
-    ),
-    zap: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#fbbf24]">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-        </svg>
-    ),
-    layers: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#60a5fa]">
-            <polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" />
-        </svg>
-    ),
-    lightbulb: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#fbbf24]">
-            <line x1="9" y1="18" x2="15" y2="18" /><line x1="10" y1="22" x2="14" y2="22" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0018 8 6 6 0 006 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 018.91 14" />
-        </svg>
-    ),
-    target: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#60a5fa]">
-            <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
-        </svg>
-    ),
-    monitor: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#a78bfa]">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-    ),
-    refresh: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#34d399]">
-            <path d="M21 12a9 9 0 11-6.22-8.56" /><path d="M21 3v5h-5" />
-        </svg>
-    ),
-    gamepad: (
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#f472b6]">
-            <line x1="6" y1="12" x2="10" y2="12" /><line x1="8" y1="10" x2="8" y2="14" /><line x1="15" y1="13" x2="15.01" y2="13" /><line x1="18" y1="11" x2="18.01" y2="11" /><path d="M17.32 5H6.68a4 4 0 00-3.978 3.59c-.006.052-.01.101-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 003 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 019.828 16h4.344a2 2 0 011.414.586L17 18c.5.5 1 1 2 1a3 3 0 003-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0017.32 5z" />
-        </svg>
-    ),
+/* ─── Header Icons ─── */
+const BellIcon = () => (
+    <HugeiconsIcon icon={Notification01Icon} size={20} color="currentColor" strokeWidth={1.5} />
+)
+
+const UserIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" /><circle cx="12" cy="7" r="4" />
+    </svg>
+)
+
+const ChevronDown = () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="6 9 12 15 18 9" />
+    </svg>
+)
+
+/* ─── Date Formatter ─── */
+function useCurrentDate() {
+    const [date, setDate] = useState(new Date())
+
+    useEffect(() => {
+        const timer = setInterval(() => setDate(new Date()), 60000)
+        return () => clearInterval(timer)
+    }, [])
+
+    const formatted = useMemo(() => {
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+        return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`
+    }, [date])
+
+    return formatted
 }
 
-export default function Dashboard({ config: settings }) {
+/* ─── Dropdown menu item ─── */
+function DropdownItem({ children, onClick, danger = false }) {
+    return (
+        <button
+            onClick={onClick}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%',
+                padding: '8px 12px',
+                border: 'none',
+                background: 'transparent',
+                color: danger ? '#f87171' : 'var(--color-text-secondary)',
+                fontSize: '13px',
+                fontFamily: 'var(--font-sans)',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                transition: 'background 120ms ease-out, color 120ms ease-out',
+                textAlign: 'left',
+            }}
+            onMouseEnter={e => {
+                e.currentTarget.style.background = 'var(--color-glass-hover)'
+                if (!danger) e.currentTarget.style.color = 'var(--color-text-primary)'
+            }}
+            onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                if (!danger) e.currentTarget.style.color = 'var(--color-text-secondary)'
+            }}
+        >
+            {children}
+        </button>
+    )
+}
 
-    const presetName = settings ? (() => {
-        const presets = {
-            1.5: 'Accessibility', 2.0: 'Browsing', 2.5: 'Productivity', 3.5: 'Gaming', 4.5: 'Design'
+export default function Dashboard({ config: settings, engineRunning, onLaunch, onKill }) {
+    const currentDate = useCurrentDate()
+    const [userName, setUserName] = useState('Sahil')
+    const [accountOpen, setAccountOpen] = useState(false)
+    const accountRef = useRef(null)
+
+    useEffect(() => {
+        callEel('get_user_name').then(name => {
+            if (name) setUserName(name)
+        }).catch(() => { /* fallback to default */ })
+    }, [])
+
+    /* Close dropdown on outside click */
+    useEffect(() => {
+        if (!accountOpen) return
+        const handler = (e) => {
+            if (accountRef.current && !accountRef.current.contains(e.target)) {
+                setAccountOpen(false)
+            }
         }
-        return presets[settings.sens_x] || 'Custom'
-    })() : '—'
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [accountOpen])
 
-    const gestureCount = settings
-        ? ['lclick', 'rclick', 'dclick', 'media_pp', 'drag', 'scroll']
-            .filter(key => settings[key] && settings[key] !== 'none').length
-        : 0
+    /* Electric border: always animate blue, switch to yellow when engine running */
+    const borderColor = engineRunning ? '#eab308' : '#72d678'
 
     return (
-        <div className="animate-in flex flex-col gap-6">
-            <div>
-                <h1 className="heading-xl mb-1">Dashboard</h1>
-                <HeaderOrnament color="rgba(74, 222, 128, 0.15)" />
-                <p className="body-sm">Real-time overview of your tracking system.</p>
-            </div>
+        <div className="animate-in flex flex-col gap-5" style={{ maxWidth: '100%' }}>
+            {/* ─── HEADER ROW ─── */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+            }}>
+                <h1 style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: '28px',
+                    fontWeight: 600,
+                    letterSpacing: '-0.02em',
+                    color: 'var(--color-text-primary)',
+                    margin: 0,
+                }}>
+                    Dashboard
+                </h1>
 
-            {/* ─── STATS GRID ─── */}
-            <div className="grid grid-cols-4 gap-3">
-                <GlassCard>
-                    <div className="flex flex-col gap-2.5">
-                        <div className="flex items-center gap-2">
-                            {icons.activity}
-                            <span className="label">Tracking</span>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                }}>
+                    {/* Launch Engine - StarBorder */}
+                    <StarBorder
+                        as="button"
+                        color={engineRunning ? 'rgba(0, 220, 255, 0.7)' : 'rgba(220, 50, 180, 0.6)'}
+                        speed={engineRunning ? '2.5s' : '5s'}
+                        thickness={1}
+                        className="engine-star-btn"
+                        onClick={engineRunning ? onKill : onLaunch}
+                        style={{
+                            cursor: 'pointer',
+                            borderRadius: '999px',
+                            boxShadow: engineRunning
+                                ? '0 0 20px rgba(0, 220, 255, 0.15)'
+                                : 'none',
+                            transition: 'box-shadow 300ms ease',
+                        }}
+                    >
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            fontFamily: 'var(--font-sans)',
+                            color: engineRunning ? '#67e8f9' : 'var(--color-text-primary)',
+                        }}>
+                            {engineRunning ? 'Stop Engine' : 'Launch Engine'}
                         </div>
-                        <span className="heading-lg">Active</span>
-                        <span className="text-[10px] text-[#5a5a65]">Face mesh 468 landmarks</span>
-                    </div>
-                </GlassCard>
+                    </StarBorder>
 
-                <GlassCard>
-                    <div className="flex flex-col gap-2.5">
-                        <div className="flex items-center gap-2">
-                            {icons.gesture}
-                            <span className="label">Gestures</span>
-                        </div>
-                        <span className="heading-lg">{gestureCount}</span>
-                        <span className="text-[10px] text-[#5a5a65]">Mapped face + hand actions</span>
-                    </div>
-                </GlassCard>
+                    {/* Notification Bell */}
+                    <button style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: 'transparent',
+                        color: 'var(--color-text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'color 150ms ease-out, background 150ms ease-out',
+                    }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.background = 'var(--color-glass-hover)'
+                            e.currentTarget.style.color = 'var(--color-text-primary)'
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = 'var(--color-text-secondary)'
+                        }}
+                    >
+                        <BellIcon />
+                    </button>
 
-                <GlassCard>
-                    <div className="flex flex-col gap-2.5">
-                        <div className="flex items-center gap-2">
-                            {icons.cpu}
-                            <span className="label">Processing</span>
-                        </div>
-                        <span className="heading-lg">&lt;16ms</span>
-                        <span className="text-[10px] text-[#5a5a65]">Per-frame latency</span>
-                    </div>
-                </GlassCard>
+                    {/* Account with Dropdown */}
+                    <div ref={accountRef} style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setAccountOpen(prev => !prev)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px',
+                                borderRadius: '10px',
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--color-text-secondary)',
+                                cursor: 'pointer',
+                                transition: 'color 150ms ease-out, background 150ms ease-out',
+                                fontFamily: 'var(--font-sans)',
+                                fontSize: '13px',
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.background = 'var(--color-glass-hover)'
+                                e.currentTarget.style.color = 'var(--color-text-primary)'
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.background = 'transparent'
+                                e.currentTarget.style.color = 'var(--color-text-secondary)'
+                            }}
+                        >
+                            <UserIcon />
+                            <ChevronDown />
+                        </button>
 
-                <GlassCard>
-                    <div className="flex flex-col gap-2.5">
-                        <div className="flex items-center gap-2">
-                            {icons.target}
-                            <span className="label">Preset</span>
-                        </div>
-                        <span className="heading-lg">{presetName}</span>
-                        <span className="text-[10px] text-[#5a5a65]">Sensitivity profile</span>
-                    </div>
-                </GlassCard>
-            </div>
-
-            <LotusDivider color="rgba(74, 222, 128, 0.12)" />
-
-            {/* ─── ENGINE STATUS ─── */}
-            <div className="grid grid-cols-2 gap-4">
-                <GlassCard hover={false}>
-                    <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
-                            {icons.shield}
-                            <span className="heading-md">System Status</span>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            {[
-                                { label: 'Resolution', value: settings ? `${settings.camera_source === "'phone'" ? 'Phone' : 'Webcam'} - 1280×720` : '1280×720', icon: icons.camera },
-                                { label: 'Face Lock', value: settings?.face_lock_enabled ? 'Enabled' : 'Disabled', icon: icons.shield },
-                                { label: 'Smoothing', value: settings ? settings.smoothing?.toFixed(2) : '0.03', icon: icons.layers },
-                                { label: 'Acceleration', value: settings ? settings.acceleration?.toFixed(1) + 'x' : '1.6x', icon: icons.zap },
-                                { label: 'Deadzone', value: settings ? settings.deadzone?.toFixed(3) : '0.030', icon: icons.target },
-                            ].map((item, i) => (
-                                <div key={i} className="flex items-center justify-between py-1.5 border-b border-[rgba(255,255,255,0.03)] last:border-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="opacity-60">{item.icon}</span>
-                                        <span className="text-[11px] text-[#a0a0a8]">{item.label}</span>
-                                    </div>
-                                    <span className="text-[11px] text-[#f0f0f0] font-mono">{item.value}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </GlassCard>
-
-                <GlassCard hover={false}>
-                    <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
-                            {icons.gesture}
-                            <span className="heading-md">Active Mappings</span>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            {settings && [
-                                { label: 'Left Click', value: settings.lclick },
-                                { label: 'Right Click', value: settings.rclick },
-                                { label: 'Double Click', value: settings.dclick },
-                                { label: 'Media Play/Pause', value: settings.media_pp },
-                                { label: 'Drag & Drop', value: settings.drag },
-                                { label: 'Scroll', value: settings.scroll },
-                            ].map((item, i) => (
-                                <div key={i} className="flex items-center justify-between py-1.5 border-b border-[rgba(255,255,255,0.03)] last:border-0">
-                                    <span className="text-[11px] text-[#a0a0a8]">{item.label}</span>
-                                    <span className="text-[11px] text-[#f0f0f0] font-medium capitalize">{item.value?.replace('_', ' ') || 'None'}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </GlassCard>
-            </div>
-
-            <LotusDivider color="rgba(74, 222, 128, 0.08)" />
-
-            {/* ─── QUICK TIPS ─── */}
-            <GlassCard hover={false}>
-                <div className="relative flex flex-col gap-4 overflow-hidden">
-                    <JaliPattern color="rgba(74, 222, 128, 0.03)" />
-                    <div className="flex items-center gap-2">
-                        {icons.lightbulb}
-                        <span className="heading-md">Quick Tips</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        {[
-                            { tip: 'Keep your face well-lit and centered for best detection accuracy.', icon: icons.lightbulb },
-                            { tip: 'Close unnecessary apps to reduce CPU load during tracking.', icon: icons.cpu },
-                            { tip: 'Use the Browsing preset for general use — balances accuracy and comfort.', icon: icons.target },
-                            { tip: 'Recalibrate (Ctrl+C) after adjusting your seating position.', icon: icons.refresh },
-                            { tip: 'For gaming, use the Gaming preset with extra room for fast movement.', icon: icons.gamepad },
-                            { tip: 'Use a monitor at eye-level for the most natural head-tracking experience.', icon: icons.monitor },
-                        ].map((item, i) => (
-                            <div key={i} className="flex items-start gap-2.5 p-3 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.03)] transition-all duration-200 hover:bg-[rgba(255,255,255,0.04)]">
-                                <span className="flex-shrink-0 mt-0.5 opacity-70">{item.icon}</span>
-                                <span className="text-[11px] text-[#a0a0a8] leading-relaxed">{item.tip}</span>
+                        {/* Animated Dropdown Menu */}
+                        <AnimatedDropdown
+                            open={accountOpen}
+                            origin="top right"
+                            style={{
+                                top: '100%',
+                                right: 0,
+                                marginTop: '6px',
+                                width: '200px',
+                                padding: '6px',
+                                background: 'var(--color-bg-elevated)',
+                                border: '1px solid var(--color-border)',
+                                borderRadius: '12px',
+                                backdropFilter: 'blur(20px)',
+                                WebkitBackdropFilter: 'blur(20px)',
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+                            }}
+                        >
+                            {/* User info */}
+                            <div style={{
+                                padding: '8px 12px 10px',
+                                borderBottom: '1px solid var(--color-border)',
+                                marginBottom: '4px',
+                            }}>
+                                <div style={{
+                                    fontSize: '13px',
+                                    fontWeight: 600,
+                                    color: 'var(--color-text-primary)',
+                                    fontFamily: 'var(--font-sans)',
+                                }}>{userName}</div>
+                                <div style={{
+                                    fontSize: '11px',
+                                    color: 'var(--color-text-muted)',
+                                    fontFamily: 'var(--font-sans)',
+                                    marginTop: '2px',
+                                }}>Personal Account</div>
                             </div>
-                        ))}
+
+                            <DropdownItem onClick={() => setAccountOpen(false)}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="8" r="4" /><path d="M20 21a8 8 0 00-16 0" /></svg>
+                                Profile
+                            </DropdownItem>
+                            <DropdownItem onClick={() => setAccountOpen(false)}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>
+                                Settings
+                            </DropdownItem>
+
+                            <div style={{ height: '1px', background: 'var(--color-border)', margin: '4px 0' }} />
+
+                            <DropdownItem onClick={() => setAccountOpen(false)} danger>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
+                                Sign Out
+                            </DropdownItem>
+                        </AnimatedDropdown>
                     </div>
+
+                    {/* Theme Toggle */}
+                    <ThemeToggle />
                 </div>
-            </GlassCard>
+            </div>
+
+            {/* ─── DATE + GREETING (tight group) ─── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <p style={{
+                    fontFamily: 'var(--font-sans)',
+                    fontSize: '13px',
+                    color: 'var(--color-text-muted)',
+                    fontWeight: 400,
+                    margin: 0,
+                }}>
+                    {currentDate}
+                </p>
+
+                <GradientText
+                    colors={['#ff1d00', '#ff406f', '#ff6e57', '#72d678']}
+                    animationSpeed={6}
+                    className="welcome-gradient"
+                >
+                    <h2 style={{
+                        fontFamily: 'var(--font-display)',
+                        fontSize: '42px',
+                        fontWeight: 600,
+                        margin: 0,
+                        lineHeight: 1.2,
+                    }}>
+                        Welcome Back, {userName}!
+                    </h2>
+                </GradientText>
+            </div>
+
+            {/* ─── LIVE FEED with Electric Border ─── */}
+            <div style={{ width: '65%', marginTop: '4px' }}>
+                <ElectricBorder
+                    color={borderColor}
+                    speed={1.5}
+                    chaos={0.06}
+                    borderRadius={16}
+                    animate={true}
+                    style={{
+                        transition: 'all 0.6s ease',
+                    }}
+                >
+                    <div style={{
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        background: 'rgba(0, 0, 0, 0.4)',
+                    }}>
+                        <LiveFeed />
+                    </div>
+                </ElectricBorder>
+            </div>
         </div>
     )
 }

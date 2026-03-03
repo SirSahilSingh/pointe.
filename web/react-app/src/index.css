@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════
@@ -32,8 +32,8 @@
   --color-warning: #fbbf24;
   --color-error: #f87171;
 
-  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display: 'Poppins', sans-serif;
+  --font-sans: 'Google Sans Flex', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Google Sans Flex', 'Poppins', sans-serif;
   --font-mono: 'JetBrains Mono', 'Consolas', monospace;
 }
 
@@ -49,6 +49,103 @@ body,
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  transition: background 400ms cubic-bezier(0.4, 0, 0.2, 1),
+    color 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Theme morph — left-to-right sweep */
+html::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+  background: var(--color-bg-base);
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+}
+
+html.theme-transitioning::after {
+  animation: theme-sweep 400ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes theme-sweep {
+  0% {
+    transform: scaleX(0);
+    opacity: 0.6;
+  }
+
+  50% {
+    transform: scaleX(1);
+    opacity: 0.4;
+  }
+
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+
+/* ═══════════════════════════════════════
+   LIGHT MODE OVERRIDES
+   ═══════════════════════════════════════ */
+html.light {
+  --color-bg-base: #f5f5f7;
+  --color-bg-elevated: #ffffff;
+  --color-bg-surface: #ebebef;
+  --color-bg-surface-hover: #e0e0e5;
+  --color-bg-input: #f0f0f3;
+
+  --color-glass: rgba(0, 0, 0, 0.03);
+  --color-glass-hover: rgba(0, 0, 0, 0.05);
+  --color-glass-active: rgba(0, 0, 0, 0.07);
+
+  --color-border: rgba(0, 0, 0, 0.08);
+  --color-border-hover: rgba(0, 0, 0, 0.12);
+  --color-border-active: rgba(0, 0, 0, 0.18);
+
+  --color-text-primary: #1a1a1f;
+  --color-text-secondary: #5a5a65;
+  --color-text-muted: #9a9aa5;
+  --color-text-accent: #000000;
+
+  --color-accent: #2a2a2f;
+  --color-accent-dim: rgba(0, 0, 0, 0.06);
+}
+
+html.light,
+html.light body,
+html.light #root {
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+}
+
+/* Light mode scrollbar */
+html.light *::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+html.light *::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+html.light * {
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+}
+
+/* Light mode glass cards */
+html.light .glass {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.8),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+html.light .glass:hover {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(0, 0, 0, 0.12);
 }
 
 /* ═══ SUPER SMOOTH SCROLLING ═══ */
@@ -348,34 +445,7 @@ body,
   background: var(--color-text-primary);
 }
 
-/* ═══ PAGE GRADIENT OVERLAYS — Per-page accent ═══ */
-.page-gradient-dashboard {
-  background: linear-gradient(180deg,
-      rgba(74, 222, 128, 0.04) 0%,
-      rgba(74, 222, 128, 0.01) 35%,
-      transparent 60%);
-}
 
-.page-gradient-settings {
-  background: linear-gradient(180deg,
-      rgba(129, 140, 248, 0.04) 0%,
-      rgba(129, 140, 248, 0.01) 35%,
-      transparent 60%);
-}
-
-.page-gradient-controls {
-  background: linear-gradient(180deg,
-      rgba(251, 191, 36, 0.04) 0%,
-      rgba(251, 191, 36, 0.01) 35%,
-      transparent 60%);
-}
-
-.page-gradient-phone {
-  background: linear-gradient(180deg,
-      rgba(244, 114, 182, 0.04) 0%,
-      rgba(244, 114, 182, 0.01) 35%,
-      transparent 60%);
-}
 
 /* ═══ INDIAN ARCHITECTURAL MOTIFS ═══ */
 /* Subtle ornamental border pattern — inspired by Mughal jali work */
@@ -457,47 +527,7 @@ body,
   border-radius: 6px;
 }
 
-/* ═══ MANDALA BACKGROUND ═══ */
-.mandala-bg {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 320px;
-  /* offset by sidebar width */
-  z-index: 0;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
 
-.mandala-img {
-  width: 80%;
-  max-width: 650px;
-  height: auto;
-  opacity: 0.03;
-  animation: mandala-rotate 120s linear infinite;
-  will-change: transform;
-  user-select: none;
-}
-
-@keyframes mandala-rotate {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mandala-img {
-    animation: none;
-  }
-}
 
 /* ═══ PRESET CARDS — Spotify / Play Store Style ═══ */
 .preset-card {

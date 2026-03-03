@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import GlassCard from '../components/layout/GlassCard'
 import { LotusDivider, HeaderOrnament } from '../components/IndianOrnaments'
@@ -32,20 +33,139 @@ function SliderRow({ label, value, onChange, min, max, step = 0.01, suffix = '' 
 }
 
 function SelectRow({ label, value, onChange, options }) {
+    const [open, setOpen] = useState(false)
+    const triggerRef = useRef(null)
+    const dropdownRef = useRef(null)
+    const [pos, setPos] = useState({ top: 0, left: 0 })
+    const selectedLabel = options.find(o => o.value === value)?.label || value
+
+    const updatePos = useCallback(() => {
+        if (!triggerRef.current) return
+        const rect = triggerRef.current.getBoundingClientRect()
+        setPos({
+            top: rect.bottom + 4,
+            left: rect.right,
+        })
+    }, [])
+
+    useEffect(() => {
+        if (!open) return
+        updatePos()
+        const handler = (e) => {
+            if (triggerRef.current?.contains(e.target)) return
+            if (dropdownRef.current?.contains(e.target)) return
+            setOpen(false)
+        }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [open, updatePos])
+
+    const dropdownMenu = (
+        <AnimatePresence>
+            {open && (
+                <motion.div
+                    ref={dropdownRef}
+                    initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                    transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
+                    style={{
+                        position: 'fixed',
+                        top: pos.top,
+                        right: window.innerWidth - pos.left,
+                        width: 'auto',
+                        minWidth: '140px',
+                        maxHeight: '260px',
+                        overflowY: 'auto',
+                        overflowX: 'hidden',
+                        padding: '4px',
+                        background: '#1a1a1f',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                        zIndex: 99998,
+                        transformOrigin: 'top right',
+                    }}
+                >
+                    {options.map(o => (
+                        <button
+                            key={o.value}
+                            onClick={() => { onChange(o.value); setOpen(false) }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '16px',
+                                width: '100%',
+                                padding: '8px 12px',
+                                border: 'none',
+                                background: value === o.value ? 'rgba(255,255,255,0.06)' : 'transparent',
+                                color: value === o.value ? '#f0f0f0' : '#a0a0a8',
+                                fontSize: '13px',
+                                fontFamily: 'var(--font-sans)',
+                                fontWeight: value === o.value ? 500 : 400,
+                                cursor: 'pointer',
+                                borderRadius: '5px',
+                                transition: 'background 100ms ease-out, color 100ms ease-out',
+                                textAlign: 'left',
+                                whiteSpace: 'nowrap',
+                            }}
+                            onMouseEnter={e => {
+                                if (value !== o.value) {
+                                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                                    e.currentTarget.style.color = '#f0f0f0'
+                                }
+                            }}
+                            onMouseLeave={e => {
+                                if (value !== o.value) {
+                                    e.currentTarget.style.background = 'transparent'
+                                    e.currentTarget.style.color = '#a0a0a8'
+                                }
+                            }}
+                        >
+                            {o.label}
+                            {value === o.value && (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                    <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                            )}
+                        </button>
+                    ))}
+                </motion.div>
+            )}
+        </AnimatePresence>
+    )
+
     return (
         <div className="flex items-center justify-between">
             <span className="text-[12px] text-[#a0a0a8]">{label}</span>
-            <select
-                className="glass-select"
-                value={value}
-                onChange={e => onChange(e.target.value)}
-            >
-                {options.map(o => (
-                    <option key={o.value} value={o.value}>
-                        {o.label}
-                    </option>
-                ))}
-            </select>
+            <div style={{ position: 'relative' }}>
+                <button
+                    ref={triggerRef}
+                    onClick={() => setOpen(prev => !prev)}
+                    className="glass-select"
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer',
+                    }}
+                >
+                    <span>{selectedLabel}</span>
+                    <svg
+                        width="12" height="12" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round"
+                        style={{
+                            transition: 'transform 200ms ease',
+                            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+                        }}
+                    >
+                        <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                </button>
+                {createPortal(dropdownMenu, document.body)}
+            </div>
         </div>
     )
 }
