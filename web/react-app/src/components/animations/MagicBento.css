@@ -1,0 +1,24 @@
+.magic-bento-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+}
+
+.magic-bento-card:hover .magic-bento-glow {
+    opacity: 1 !important;
+}
+
+.magic-bento-card .magic-bento-inner {
+    background: #18181c;
+}
+
+/* Card hover lift */
+.magic-bento-card {
+    transition: transform 150ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.magic-bento-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}

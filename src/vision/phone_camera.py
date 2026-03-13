@@ -149,19 +149,21 @@ class BufferlessCapture:
         self._lock = threading.Lock()
         self._opened = True
         self._last_frame_time = 0
+        self._frame_id = 0
 
     # -- called by the WS handler when a new frame arrives --
     def push_frame(self, frame: np.ndarray):
         with self._lock:
             self._frame = frame
             self._last_frame_time = time.time()
+            self._frame_id += 1
 
     # -- cv2-compatible API --
     def read(self):
         with self._lock:
             if self._frame is None:
-                return False, None
-            return True, self._frame.copy()
+                return False, None, self._frame_id
+            return True, self._frame.copy(), self._frame_id
 
     def isOpened(self):
         return self._opened

@@ -2,7 +2,18 @@ import pyautogui
 import numpy as np
 import math
 import time
+import os
 import settings
+
+# Native cursor API for lower latency (Windows only)
+_use_native_cursor = False
+if os.name == 'nt':
+    try:
+        import ctypes
+        _user32 = ctypes.windll.user32
+        _use_native_cursor = True
+    except Exception:
+        pass
 
 
 class MouseController:
@@ -65,7 +76,7 @@ class MouseController:
         self.is_agent_calibrated = True
         print(f"[AGENT] Calibrated Face - L_Eye:{self.base_l_ear:.2f}, Mouth:{self.base_mar:.2f}")
 
-    # --- 2. MOVEMENT PHYSICS ---
+    # --- 2. MOVEMENT ---
     def apply_dead_zone(self, v):
         if abs(v) < self.dead_zone_norm: return 0
         return v - self.dead_zone_norm if v > 0 else v + self.dead_zone_norm
@@ -74,32 +85,28 @@ class MouseController:
         exp = getattr(settings, 'ACCELERATION', 1.6)
         return np.sign(v) * (abs(v) ** exp)
 
-    def move(self, dx_norm, dy_norm, zoom):
+    def move(self, dx_pixels, dy_pixels):
+        """Move cursor by pixel deltas (velocity/joystick model).
+        dx_pixels / dy_pixels are per-frame pixel movements from MotionEngine.
+        """
         if self.action_states["scroll_mode"]: return
 
-        dx = self.apply_dead_zone(dx_norm)
-        dy = self.apply_dead_zone(dy_norm)
+        # Accumulate position
+        self.cursor_x += dx_pixels
+        self.cursor_y += dy_pixels
 
-        nx = self.acceleration_curve(dx)
-        ny = self.acceleration_curve(dy)
+        # Clamp to screen bounds
+        self.cursor_x = max(0, min(self.cursor_x, self.screen_w - 1))
+        self.cursor_y = max(0, min(self.cursor_y, self.screen_h - 1))
 
-        zoom_factor = max(zoom, 0.5)
-        nx /= zoom_factor
-        ny /= zoom_factor
+        gx = int(self.cursor_x)
+        gy = int(self.cursor_y)
 
-        tx = self.center_x + (nx * (self.screen_w / 2.0))
-        ty = self.center_y + (ny * (self.screen_h / 2.0))
-
-        pixel_dist = math.hypot(tx - self.cursor_x, ty - self.cursor_y)
-        base_smooth = getattr(settings, 'SMOOTHING', 0.03)
-        dynamic_smooth = base_smooth + (min(pixel_dist, 150) / 150.0) * (0.40 - base_smooth)
-
-        self.cursor_x += (tx - self.cursor_x) * dynamic_smooth
-        self.cursor_y += (ty - self.cursor_y) * dynamic_smooth
-
-        gx = np.clip(self.cursor_x, 0, self.screen_w - 1)
-        gy = np.clip(self.cursor_y, 0, self.screen_h - 1)
-        pyautogui.moveTo(round(gx), round(gy))
+        # Use native Win32 API for minimal latency, fallback to pyautogui
+        if _use_native_cursor:
+            _user32.SetCursorPos(gx, gy)
+        else:
+            pyautogui.moveTo(gx, gy)
 
     # --- 3. NORMALIZED MATH HELPERS ---
     def get_norm_dist(self, face, p1, p2):
@@ -226,23 +233,7 @@ class MouseController:
         # 2. Get user preferences from settings
         mapping = settings.GESTURE_MAPPINGS
 
-        # --- KEYBOARD INPUT: PINCH COPY/PASTE ---
-        if getattr(settings, 'PINCH_COPY_PASTE', False):
-            pinch_now = self.detect_pinch(hand_results)
-            if pinch_now and not self.is_pinching:
-                # Pinch started -> Copy
-                if now - self.last_pinch_time > 1.0:  # cooldown
-                    pyautogui.hotkey('ctrl', 'c')
-                    self.last_pinch_time = now
-                    state_msgs.append("COPY (Ctrl+C)")
-                self.is_pinching = True
-            elif not pinch_now and self.is_pinching:
-                # Unpinch -> Paste
-                if now - self.last_pinch_time > 0.5:  # cooldown
-                    pyautogui.hotkey('ctrl', 'v')
-                    self.last_pinch_time = now
-                    state_msgs.append("PASTE (Ctrl+V)")
-                self.is_pinching = False
+
 
         # --- KEYBOARD INPUT: HAND-SWAP WINDOW SWITCH ---
         if getattr(settings, 'HAND_SWAP_WINDOW_SWITCH', False):

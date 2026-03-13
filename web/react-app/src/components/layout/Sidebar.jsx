@@ -246,7 +246,7 @@ function SidebarItem({ item, isActive, isOpen, onClick }) {
    SIDEBAR
    ═══════════════════════════════════════ */
 export default function Sidebar({ activePage, onPageChange, className = '' }) {
-    const [isOpen, setIsOpen] = useState(true)
+    const [isOpen, setIsOpen] = useState(false)
     const [logoHovered, setLogoHovered] = useState(false)
     const sidebarRef = useRef(null)
 
@@ -269,7 +269,7 @@ export default function Sidebar({ activePage, onPageChange, className = '' }) {
                 flexDirection: 'column',
                 padding: 0,
                 borderRight: '1px solid rgba(255, 255, 255, 0.06)',
-                background: 'rgba(25, 25, 30, 0.75)',
+                background: '#08080a',
                 backdropFilter: 'blur(16px)',
                 WebkitBackdropFilter: 'blur(16px)',
                 position: 'relative',
@@ -288,7 +288,7 @@ export default function Sidebar({ activePage, onPageChange, className = '' }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '10px 8px 16px 8px',
+                    padding: '24px 8px 14px 8px',
                     minHeight: '56px',
                     position: 'relative',
                     width: '100%',

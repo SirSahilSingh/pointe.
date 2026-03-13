@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.cdnfonts.com/css/omnes');
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════
@@ -6,8 +7,8 @@
    Royal Indian-inspired theme with clean modern lines
    ═══════════════════════════════════════ */
 @theme {
-  --color-bg-base: #08080a;
-  --color-bg-elevated: #111113;
+  --color-bg-base: #141418;
+  --color-bg-elevated: #1a1a1f;
   --color-bg-surface: #18181b;
   --color-bg-surface-hover: #1f1f23;
   --color-bg-input: #141416;

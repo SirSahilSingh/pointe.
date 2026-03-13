@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { callEel, exposeToEel } from './hooks/useEel'
 import Sidebar from './components/layout/Sidebar'
 import Dashboard from './pages/Dashboard'
@@ -9,6 +10,8 @@ import Search from './pages/Search'
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [phoneCameraOpen, setPhoneCameraOpen] = useState(false)
   const [engineRunning, setEngineRunning] = useState(false)
   const [config, setConfig] = useState({
     sens_x: 2.50,
@@ -32,13 +35,10 @@ export default function App() {
     deadzone: 0.03,
   })
 
-  // Hydrate settings from backend
   useEffect(() => {
     callEel('get_current_settings').then(s => {
       if (s) setConfig(prev => ({ ...prev, ...s }))
     })
-
-    // Listen for engine events
     exposeToEel('engine_launched', () => setEngineRunning(true))
     exposeToEel('engine_killed', () => setEngineRunning(false))
   }, [])
@@ -51,15 +51,28 @@ export default function App() {
     await callEel('kill_engine')
   }
 
+  const handlePageChange = (id) => {
+    if (id === 'settings') {
+      setSettingsOpen(true)
+      setPhoneCameraOpen(false)
+      return
+    }
+    if (id === 'phone-camera') {
+      setPhoneCameraOpen(true)
+      setSettingsOpen(false)
+      return
+    }
+    setActivePage(id)
+  }
+
   const renderPage = () => {
     switch (activePage) {
-      case 'settings': return <Settings config={config} setConfig={setConfig} engineRunning={engineRunning} />
       case 'controls': return <Controls />
-      case 'phone-camera': return <PhoneCamera />
       case 'search': return <Search />
       default: return (
         <Dashboard
           config={config}
+          setConfig={setConfig}
           engineRunning={engineRunning}
           onLaunch={handleLaunch}
           onKill={handleKill}
@@ -71,8 +84,8 @@ export default function App() {
   return (
     <div className="flex h-screen" style={{ background: 'var(--color-bg-base)' }}>
       <Sidebar
-        activePage={activePage}
-        onPageChange={setActivePage}
+        activePage={(settingsOpen || phoneCameraOpen) ? (settingsOpen ? 'settings' : 'phone-camera') : activePage}
+        onPageChange={handlePageChange}
         className="relative z-30"
       />
       <main className="relative flex-1 flex flex-col overflow-hidden z-10" style={{ transition: 'flex 250ms cubic-bezier(0.4, 0, 0.2, 1)' }}>
@@ -80,6 +93,23 @@ export default function App() {
           {renderPage()}
         </div>
       </main>
+
+      <AnimatePresence>
+        {settingsOpen && (
+          <Settings
+            config={config}
+            setConfig={setConfig}
+            engineRunning={engineRunning}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {phoneCameraOpen && (
+          <PhoneCamera onClose={() => setPhoneCameraOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

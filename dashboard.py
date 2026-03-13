@@ -84,6 +84,18 @@ def get_system_info():
 def save_and_launch(config):
     global engine_process, is_running, cap, phone_cam_active
 
+    # Kill any existing engine process first to free the IPC port
+    if engine_process and engine_process.poll() is None:
+        try:
+            engine_process.terminate()
+            engine_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            engine_process.kill()
+        except Exception:
+            pass
+        engine_process = None
+        time.sleep(0.5)  # Let OS release the port
+
     # Determine camera source literal for settings.py
     if phone_cam_active:
         cam_source_literal = "'phone'"
@@ -136,6 +148,18 @@ HAND_SWAP_WINDOW_SWITCH = {config.get('hand_swap_window', True)}
 FACE_LOCK_ENABLED = {config.get('face_lock_enabled', False)}
 FACE_LOCK_TIMEOUT = {config.get('face_lock_timeout', 30)}
 FACE_LOCK_ON_UNKNOWN = {config.get('face_lock_on_unknown', False)}
+
+# --- MOTION ENGINE (Velocity/Joystick Cursor Model) ---
+MOTION_ENGINE = {{
+    "raw_smooth": 0.08,
+    "dead_zone": 0.08,
+    "max_tilt": 0.35,
+    "max_speed": 900,
+    "damping": 0.15,
+    "one_euro_mincutoff": 1.5,
+    "one_euro_beta": 0.3,
+    "one_euro_dcutoff": 1.0,
+}}
 """
     settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.py")
     with open(settings_path, "w") as f: f.write(new_settings)
@@ -208,7 +232,7 @@ def register_face():
     global cap
     if cap is None or not cap.isOpened():
         return {'success': False, 'error': 'Camera not available.'}
-    ok, frame = cap.read()
+    ok, frame, *_ = cap.read()
     if not ok:
         return {'success': False, 'error': 'Could not capture frame.'}
     face_id, result = face_lock_mgr.register_face(frame)
@@ -225,7 +249,7 @@ def capture_face_frame():
     global cap
     if cap is None or not cap.isOpened():
         return {'success': False, 'error': 'Camera not available.'}
-    ok, frame = cap.read()
+    ok, frame, *_ = cap.read()
     if not ok:
         return {'success': False, 'error': 'Could not capture frame.'}
     _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
@@ -356,7 +380,7 @@ def get_phone_camera_status():
 
 
 def stream_camera():
-    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server
+    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server, engine_process
     frame_send_count = 0
 
     # Wait for browser to connect and React to mount before sending frames
@@ -387,6 +411,7 @@ def stream_camera():
             if not cap.isOpened():
                 print(f"[stream_camera] Failed to open camera index {settings.CAMERA_INDEX}")
                 return
+            print(f"[stream_camera] ✅ Camera opened (index={settings.CAMERA_INDEX})")
 
         if cap is None:
             print("[stream_camera] No camera source available")
@@ -413,17 +438,17 @@ def stream_camera():
                 try:
                     if not ipc_conn:
                         ipc_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        ipc_conn.settimeout(2.0)
+                        ipc_conn.settimeout(0.5)  # Short timeout — don't freeze the UI
                         try:
                             ipc_conn.connect(('127.0.0.1', 11337))
                             ipc_conn.setblocking(False)
                             buffer_str = ""
                             print("[stream_camera] IPC connected to engine.")
-                        except (ConnectionRefusedError, OSError):
+                        except (ConnectionRefusedError, OSError, socket.timeout):
                             # Engine hasn't started IPC server yet, retry later
                             ipc_conn.close()
                             ipc_conn = None
-                            eel.sleep(1.0)
+                            eel.sleep(0.3)
                             continue
                     
                     try:
@@ -447,8 +472,41 @@ def stream_camera():
                     if ipc_conn:
                         ipc_conn.close()
                         ipc_conn = None
-                    eel.sleep(0.5)
+                    eel.sleep(0.2)
                 continue
+
+            # --- Engine died or was killed: clean up IPC and restart camera ---
+            # Only handle this if the engine WAS running (stale process ref) — not on fresh start
+            if engine_process is not None and engine_process.poll() is not None:
+                # Clean up IPC
+                if ipc_conn:
+                    try:
+                        ipc_conn.close()
+                    except Exception:
+                        pass
+                    ipc_conn = None
+                    buffer_str = ""
+
+                # Auto-restart local camera
+                engine_process = None  # Clear stale reference
+                print("[stream_camera] Engine exited — restarting local camera.")
+                if phone_cam_active and phone_cam_server is None:
+                    time.sleep(0.5)
+                    try:
+                        phone_cam_server = PhoneCameraServer()
+                        phone_cam_server.start()
+                        cap = getattr(phone_cam_server, 'capture', None)
+                    except Exception:
+                        pass
+                elif cap is None:
+                    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+                    cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
+                    if not cap.isOpened():
+                        cap = None
+                try:
+                    eel.engine_killed()()
+                except Exception:
+                    pass
 
             # --- LOCAL CAPTURE IF ENGINE IS OFF ---
             if cap is None:
@@ -456,12 +514,19 @@ def stream_camera():
                 continue
 
             try:
-                success, frame = cap.read()
-            except Exception:
+                success, frame, *_ = cap.read()
+            except Exception as read_err:
+                print(f"[stream_camera] cap.read() exception: {read_err}")
                 eel.sleep(0.1)
                 continue
             
-            if success:
+            if not success:
+                eel.sleep(0.01)
+                continue
+
+            # ONLY run expensive AI detection if we are actively in the tutorial
+            face_detected = False
+            if is_tutorial_mode:
                 frame, results = detector.process_frame(frame, draw=False)
                 face_detected = bool(results.multi_face_landmarks)
 
@@ -470,7 +535,7 @@ def stream_camera():
                 hand_results = hand_detector.process(rgb_frame)
 
                 # --- THE REFEREE LOGIC (TUTORIAL) ---
-                if is_tutorial_mode and face_detected:
+                if face_detected:
                     face = results.multi_face_landmarks[0]
 
                     if not mouse_referee.is_agent_calibrated:
@@ -484,26 +549,26 @@ def stream_camera():
                             eel.tutorial_event(gestures[0])()
                             eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
 
-                # Resize and send mirrored frame to UI (always mirror for user preview)
-                display_frame = cv2.flip(frame, 1)
-                display_frame = cv2.resize(display_frame, (640, 360))
-                _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                b64_str = base64.b64encode(buffer).decode('utf-8')
+            # Resize and send frame to UI (lower res = much faster b64 transfer)
+            display_frame = cv2.resize(frame, (480, 270))
+            _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            b64_str = base64.b64encode(buffer).decode('utf-8')
 
-                try:
-                    eel.updateImage(b64_str)()
-                    eel.updateTelemetry(face_detected)()
-                    frame_send_count += 1
-                    if frame_send_count == 1:
-                        print("[stream_camera] ✅ First frame sent to JS successfully!")
-                    elif frame_send_count % 100 == 0:
-                        print(f"[stream_camera] {frame_send_count} frames sent")
-                except Exception as e:
-                    if frame_send_count == 0:
-                        print(f"[stream_camera] ❌ Failed to send frame to JS: {e}")
-                    pass
+            try:
+                eel.updateImage(b64_str)()
+                eel.updateTelemetry(face_detected)()
+                frame_send_count += 1
+                if frame_send_count == 1:
+                    print("[stream_camera] ✅ First frame sent to JS successfully!")
+                elif frame_send_count % 100 == 0:
+                    print(f"[stream_camera] {frame_send_count} frames sent")
+            except Exception as e:
+                if frame_send_count == 0:
+                    print(f"[stream_camera] ❌ Failed to send frame to JS: {e}")
+                pass
 
-            eel.sleep(0.03)
+            # Yield briefly to let Eel send WebSockets without hogging CPU (0.005s = up to 200 FPS)
+            eel.sleep(0.005)
     except Exception as e:
         print(f"[stream_camera] Fatal error: {e}")
         import traceback

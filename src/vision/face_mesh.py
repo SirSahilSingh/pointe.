@@ -15,7 +15,7 @@ class FaceMeshDetector:
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             static_image_mode=self.static_mode,
             max_num_faces=self.max_faces,
-            refine_landmarks=True,
+            refine_landmarks=False,
             min_detection_confidence=self.min_detection_con,
             min_tracking_confidence=self.min_track_con
         )

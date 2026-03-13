@@ -7,6 +7,8 @@ const ElectricBorder = ({
     speed = 1,
     chaos = 0.12,
     borderRadius = 24,
+    displacement: displacementProp = 35,
+    borderOffset: borderOffsetProp = 35,
     className,
     style,
     animate = true
@@ -142,8 +144,8 @@ const ElectricBorder = ({
         const amplitude = chaos;
         const frequency = 10;
         const baseFlatness = 0;
-        const displacement = 35;
-        const borderOffset = 35;
+        const displacement = displacementProp;
+        const borderOffset = borderOffsetProp;
 
         const updateSize = () => {
             const rect = container.getBoundingClientRect();

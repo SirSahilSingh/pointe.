@@ -89,28 +89,34 @@ class FloatingHUD:
         step = [0]
 
         def tick():
-            step[0] += 1
-            t = min(step[0] / self.ANIM_STEPS, 1.0)
-            ease_t = self._ease_out_cubic(t)
+            try:
+                step[0] += 1
+                t = min(step[0] / self.ANIM_STEPS, 1.0)
+                ease_t = self._ease_out_cubic(t)
 
-            self.current_w = int(start_w + (target_w - start_w) * ease_t)
-            self.current_h = int(start_h + (target_h - start_h) * ease_t)
+                self.current_w = int(start_w + (target_w - start_w) * ease_t)
+                self.current_h = int(start_h + (target_h - start_h) * ease_t)
 
-            x = (self.screen_w // 2) - (self.current_w // 2)
-            y = 18
-            self.root.geometry(f"{self.current_w}x{self.current_h}+{x}+{y}")
-            self.pill.place_configure(width=self.current_w - 4, height=self.current_h - 4)
+                x = (self.screen_w // 2) - (self.current_w // 2)
+                y = 18
+                self.root.geometry(f"{self.current_w}x{self.current_h}+{x}+{y}")
+                self.pill.place_configure(width=self.current_w - 4, height=self.current_h - 4)
 
-            if t < 1.0:
-                self._anim_id = self.root.after(self.ANIM_DELAY_MS, tick)
-            else:
+                if t < 1.0:
+                    self._anim_id = self.root.after(self.ANIM_DELAY_MS, tick)
+                else:
+                    self._anim_id = None
+                    if on_complete:
+                        on_complete()
+            except Exception:
                 self._anim_id = None
-                if on_complete:
-                    on_complete()
 
         # Cancel any in-progress animation
         if self._anim_id:
-            self.root.after_cancel(self._anim_id)
+            try:
+                self.root.after_cancel(self._anim_id)
+            except Exception:
+                pass
         tick()
 
     def _expand(self, msg):
@@ -142,8 +148,11 @@ class FloatingHUD:
 
     def update(self):
         """Must be called in the main engine loop to keep the UI alive."""
-        if self.clear_timer > 0:
-            self.clear_timer -= 1
-            if self.clear_timer == 0 and self.is_expanded:
-                self._collapse()
-        self.root.update()
+        try:
+            if self.clear_timer > 0:
+                self.clear_timer -= 1
+                if self.clear_timer == 0 and self.is_expanded:
+                    self._collapse()
+            self.root.update()
+        except Exception:
+            pass

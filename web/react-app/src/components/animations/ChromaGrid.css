@@ -1,0 +1,18 @@
+.chroma-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.chroma-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.06);
+}
+
+.chroma-card:hover .chroma-glow {
+    opacity: 1 !important;
+}
+
+.chroma-card .chroma-inner {
+    background: #111113;
+}

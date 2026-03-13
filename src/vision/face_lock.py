@@ -124,12 +124,6 @@ class FaceLockManager:
         if norm > 0:
             avg_embedding = avg_embedding / norm
 
-        # Check for duplicates
-        for fid, saved_emb in self.registered_faces.items():
-            sim = self._cosine_similarity(avg_embedding, saved_emb)
-            if sim > SIMILARITY_THRESHOLD:
-                return None, "This face appears to already be registered."
-
         face_id = uuid.uuid4().hex[:8]
         np.save(os.path.join(DATA_DIR, f'{face_id}.npy'), avg_embedding)
         self.registered_faces[face_id] = avg_embedding

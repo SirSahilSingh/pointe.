@@ -6,7 +6,7 @@ FRAME_HEIGHT = 720
 
 # --- HEAD TRACKING SENSITIVITY ---
 SENSITIVITY_X = 2.00         
-SENSITIVITY_Y = 2.00          
+SENSITIVITY_Y = 4.50          
 
 # --- MOVEMENT PHYSICS ---
 SMOOTHING = 0.05
@@ -35,7 +35,7 @@ GESTURE_CALIBRATION = {
 
 # --- FEATURE TOGGLES ---
 MEDIA_AUTO_PAUSE = True
-SCROLL_ENABLED = True
+SCROLL_ENABLED = False
 MOUSE_CONTROL_ENABLED = True
 PINCH_COPY_PASTE = True
 HAND_SWAP_WINDOW_SWITCH = True
@@ -44,3 +44,15 @@ HAND_SWAP_WINDOW_SWITCH = True
 FACE_LOCK_ENABLED = False
 FACE_LOCK_TIMEOUT = 15
 FACE_LOCK_ON_UNKNOWN = False
+
+# --- MOTION ENGINE (Velocity/Joystick Cursor Model) ---
+MOTION_ENGINE = {
+    "raw_smooth": 0.25,
+    "dead_zone": 0.08,
+    "max_tilt": 0.32,
+    "max_speed": 950,
+    "damping": 0.15,
+    "one_euro_mincutoff": 1.5,
+    "one_euro_beta": 0.3,
+    "one_euro_dcutoff": 1.0,
+}
