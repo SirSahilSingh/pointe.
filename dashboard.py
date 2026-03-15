@@ -539,15 +539,14 @@ def stream_camera():
                     face = results.multi_face_landmarks[0]
 
                     if not mouse_referee.is_agent_calibrated:
-                        mouse_referee.calibrate_agent(face)
-                        # Send signal to JS that calibration is done
-                        eel.tutorial_event("calibrated")()
-                    else:
-                        gestures = mouse_referee.detect_gestures(face, hand_results)
-                        if gestures:
-                            # Send the first detected gesture to JS
-                            eel.tutorial_event(gestures[0])()
-                            eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
+                        if mouse_referee.calibrate_agent(face):
+                            eel.tutorial_event("calibrated")()
+
+                    gestures = mouse_referee.detect_gestures(face, hand_results)
+                    if gestures:
+                        # Send the first detected gesture to JS
+                        eel.tutorial_event(gestures[0])()
+                        eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
 
             # Resize and send frame to UI (lower res = much faster b64 transfer)
             display_frame = cv2.resize(frame, (480, 270))

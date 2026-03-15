@@ -12,6 +12,11 @@ if os.name == 'nt':
         import ctypes
         _user32 = ctypes.windll.user32
         _use_native_cursor = True
+        _MOUSEEVENTF_LEFTDOWN = 0x0002
+        _MOUSEEVENTF_LEFTUP = 0x0004
+        _MOUSEEVENTF_RIGHTDOWN = 0x0008
+        _MOUSEEVENTF_RIGHTUP = 0x0010
+        _MOUSEEVENTF_WHEEL = 0x0800
     except Exception:
         pass
 
@@ -30,6 +35,12 @@ class MouseController:
 
         # --- THE AUTO-AGENT (Personalized Baselines) ---
         self.is_agent_calibrated = False
+        self._calibration_samples = []
+        self._TARGET_CALIBRATION_FRAMES = 12
+        self._gesture_started_at = {}
+        self._prev_active_gestures = set()
+        self._prev_m_ratio = 0.0
+        
         self.base_l_ear = 0.25  # Left Eye resting width
         self.base_r_ear = 0.25  # Right Eye resting width
         self.base_mar = 0.05  # Mouth resting height
@@ -61,20 +72,55 @@ class MouseController:
         self.face_missing_start = 0
         self.has_auto_paused = False
 
+    def reset_agent_calibration(self):
+        self.is_agent_calibrated = False
+        self._calibration_samples.clear()
+        self._gesture_started_at.clear()
+        self._prev_active_gestures.clear()
+        self._prev_m_ratio = 0.0
+        self.base_l_ear = 0.25
+        self.base_r_ear = 0.25
+        self.base_mar = 0.05
+        self.base_m_ratio = 0.35
+
     # --- 1. THE AUTO-AGENT CALIBRATOR ---
     def calibrate_agent(self, face):
-        """ Scans your resting face to create personalized mathematical thresholds. """
-        self.base_r_ear = self.get_ear(face, 159, 145, 133, 33)
-        self.base_l_ear = self.get_ear(face, 386, 374, 362, 263)
-
+        """ Scans 30 frames of resting face to create robust personalized baselines. """
+        if face is None:
+            return False
+        
+        r_ear = self.get_ear(face, 159, 145, 133, 33)
+        l_ear = self.get_ear(face, 386, 374, 362, 263)
         mouth_w = self.get_norm_dist(face, 61, 291)
         mouth_h = self.get_norm_dist(face, 13, 14)
         face_w = self.get_norm_dist(face, 234, 454)
 
-        self.base_mar = mouth_h / mouth_w if mouth_w > 0 else 0
-        self.base_m_ratio = mouth_w / face_w if face_w > 0 else 0
-        self.is_agent_calibrated = True
-        print(f"[AGENT] Calibrated Face - L_Eye:{self.base_l_ear:.2f}, Mouth:{self.base_mar:.2f}")
+        mar = mouth_h / mouth_w if mouth_w > 0 else 0
+        m_ratio = mouth_w / face_w if face_w > 0 else 0
+
+        # Only use neutral frames for calibration so a wink/blink/open mouth
+        # during startup doesn't poison the baseline.
+        if l_ear < 0.20 or r_ear < 0.20 or mar > 0.12:
+            return False
+        
+        self._calibration_samples.append({
+            'l_ear': l_ear, 'r_ear': r_ear, 'mar': mar, 'm_ratio': m_ratio
+        })
+        
+        if len(self._calibration_samples) >= self._TARGET_CALIBRATION_FRAMES:
+            # Calculate averages
+            self.base_l_ear = sum(s['l_ear'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
+            self.base_r_ear = sum(s['r_ear'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
+            self.base_mar = sum(s['mar'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
+            self.base_m_ratio = sum(s['m_ratio'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
+            
+            self.is_agent_calibrated = True
+            # Clear samples for next time
+            self._calibration_samples.clear()
+            print(f"[AGENT] Calibrated (30 frames) - L_Eye:{self.base_l_ear:.3f}, R_Eye:{self.base_r_ear:.3f}")
+            return True
+
+        return False
 
     # --- 2. MOVEMENT ---
     def apply_dead_zone(self, v):
@@ -95,9 +141,23 @@ class MouseController:
         self.cursor_x += dx_pixels
         self.cursor_y += dy_pixels
 
-        # Clamp to screen bounds
-        self.cursor_x = max(0, min(self.cursor_x, self.screen_w - 1))
-        self.cursor_y = max(0, min(self.cursor_y, self.screen_h - 1))
+        # Clamp to screen bounds and detect if we hit the edge
+        hit_edge_x = False
+        hit_edge_y = False
+        
+        if self.cursor_x < 0:
+            self.cursor_x = 0
+            hit_edge_x = True
+        elif self.cursor_x >= self.screen_w:
+            self.cursor_x = self.screen_w - 1
+            hit_edge_x = True
+            
+        if self.cursor_y < 0:
+            self.cursor_y = 0
+            hit_edge_y = True
+        elif self.cursor_y >= self.screen_h:
+            self.cursor_y = self.screen_h - 1
+            hit_edge_y = True
 
         gx = int(self.cursor_x)
         gy = int(self.cursor_y)
@@ -107,6 +167,48 @@ class MouseController:
             _user32.SetCursorPos(gx, gy)
         else:
             pyautogui.moveTo(gx, gy)
+            
+        return hit_edge_x, hit_edge_y
+
+    def _left_down(self):
+        if _use_native_cursor:
+            _user32.mouse_event(_MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        else:
+            pyautogui.mouseDown()
+
+    def _left_up(self):
+        if _use_native_cursor:
+            _user32.mouse_event(_MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        else:
+            pyautogui.mouseUp()
+
+    def _left_click(self):
+        if _use_native_cursor:
+            self._left_down()
+            self._left_up()
+        else:
+            pyautogui.click()
+
+    def _right_click(self):
+        if _use_native_cursor:
+            _user32.mouse_event(_MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+            _user32.mouse_event(_MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+        else:
+            pyautogui.rightClick()
+
+    def _double_click(self):
+        if _use_native_cursor:
+            self._left_click()
+            time.sleep(0.04)
+            self._left_click()
+        else:
+            pyautogui.doubleClick()
+
+    def _scroll(self, amount):
+        if _use_native_cursor:
+            _user32.mouse_event(_MOUSEEVENTF_WHEEL, 0, 0, int(amount), 0)
+        else:
+            pyautogui.scroll(amount)
 
     # --- 3. NORMALIZED MATH HELPERS ---
     def get_norm_dist(self, face, p1, p2):
@@ -176,46 +278,123 @@ class MouseController:
         return hand_results.multi_handedness[0].classification[0].label
 
     # --- 5. GESTURE DETECTION (The Hardware Agnostic Layer) ---
+    _gesture_debug_counter = 0
+
+    def _get_gesture_config(self, gesture_name):
+        return getattr(settings, 'GESTURE_CALIBRATION', {}).get(gesture_name, {})
+
+    def _get_hold_duration(self, gesture_name, default=0.2):
+        return float(self._get_gesture_config(gesture_name).get('hold_duration', default))
+
+    def _get_threshold(self, gesture_name, default):
+        return float(self._get_gesture_config(gesture_name).get('threshold', default))
+
+    def _sustain_gesture(self, gesture_name, raw_active, now, default_hold=0.2, hold_duration=None):
+        if not raw_active:
+            self._gesture_started_at.pop(gesture_name, None)
+            return False
+
+        started_at = self._gesture_started_at.setdefault(gesture_name, now)
+        if hold_duration is None:
+            hold_duration = self._get_hold_duration(gesture_name, default_hold)
+        return hold_duration <= 0 or (now - started_at) >= hold_duration
+
     def detect_gestures(self, face, hand_results=None):
-        """ Analyzes face against PERSONALIZED baselines to return active physical gestures. """
-        if not self.is_agent_calibrated: return []
+        if face is None:
+            return []
+
+        now = time.time()
 
         r_ear = self.get_ear(face, 159, 145, 133, 33)
         l_ear = self.get_ear(face, 386, 374, 362, 263)
+
         mouth_w = self.get_norm_dist(face, 61, 291)
         mouth_h = self.get_norm_dist(face, 13, 14)
         face_w = self.get_norm_dist(face, 234, 454)
 
         mar = mouth_h / mouth_w if mouth_w > 0 else 0
-        m_ratio = mouth_w / face_w if face_w > 0 else 0
+        current_m_ratio = mouth_w / face_w if face_w > 0 else 0
+        left_ratio = l_ear / self.base_l_ear if self.base_l_ear > 0 else 1.0
+        right_ratio = r_ear / self.base_r_ear if self.base_r_ear > 0 else 1.0
 
-        # Personalized Thresholds — using GESTURE_CALIBRATION from settings
-        cal = getattr(settings, 'GESTURE_CALIBRATION', {})
-        eye_thresh = cal.get('left_wink', {}).get('threshold', 0.60)
-        pucker_thresh = cal.get('pucker', {}).get('threshold', 0.85)
-        jaw_thresh = cal.get('jaw_drop', {}).get('threshold', 0.25)
+        left_delta = (self.base_l_ear - l_ear) / self.base_l_ear if self.base_l_ear > 0 else 0
+        right_delta = (self.base_r_ear - r_ear) / self.base_r_ear if self.base_r_ear > 0 else 0
 
-        L_CLOSED = l_ear < (self.base_l_ear * eye_thresh)
-        R_CLOSED = r_ear < (self.base_r_ear * eye_thresh)
-        L_OPEN = l_ear > (self.base_l_ear * 0.8)
-        R_OPEN = r_ear > (self.base_r_ear * 0.8)
+        mouth_delta = self._prev_m_ratio - current_m_ratio
+        self._prev_m_ratio = current_m_ratio
 
-        JAW_DROPPED = mar > (self.base_mar + jaw_thresh)
-        PUCKERED = m_ratio < (self.base_m_ratio * pucker_thresh)
+        left_wink_threshold = self._get_threshold('left_wink', 0.78)
+        right_wink_threshold = self._get_threshold('right_wink', 0.78)
+        both_closed_threshold = self._get_threshold('both_closed', 0.45)
+        pucker_threshold = self._get_threshold('pucker', 0.80)
+        jaw_thresh = self._get_threshold('jaw_drop', 0.15)
+        abs_eye_closed = 0.19
+        abs_eye_open = 0.205
+        abs_pucker_ratio = 0.29
+
+        other_eye_open_guard = 0.72
+        left_closed_enough = left_ratio <= left_wink_threshold or left_delta >= 0.18 or l_ear <= abs_eye_closed
+        right_closed_enough = right_ratio <= right_wink_threshold or right_delta >= 0.18 or r_ear <= abs_eye_closed
+        left_eye_open_enough = left_ratio >= max(0.78, other_eye_open_guard) or l_ear >= abs_eye_open
+        right_eye_open_enough = right_ratio >= max(0.78, other_eye_open_guard) or r_ear >= abs_eye_open
+        eye_separation = abs(l_ear - r_ear)
+
+        raw_left_wink = (
+            ((left_closed_enough and right_eye_open_enough) and eye_separation >= 0.018) or
+            (l_ear <= abs_eye_closed and r_ear >= abs_eye_open)
+        )
+        raw_right_wink = (
+            ((right_closed_enough and left_eye_open_enough) and eye_separation >= 0.018) or
+            (r_ear <= abs_eye_closed and l_ear >= abs_eye_open)
+        )
+        raw_both_closed = (
+            (left_ratio <= both_closed_threshold and right_ratio <= both_closed_threshold) or
+            (l_ear <= abs_eye_closed and r_ear <= abs_eye_closed)
+        )
+        raw_pucker = (
+            current_m_ratio <= (self.base_m_ratio * pucker_threshold) or
+            current_m_ratio <= abs_pucker_ratio or
+            ((self.base_m_ratio - current_m_ratio) >= 0.035 and mar <= max(self.base_mar + 0.03, 0.18))
+        )
+
+        is_dragging = getattr(self, 'action_states', {}).get("is_dragging", False)
+        raw_jaw_drop = mar > (self.base_mar + (0.05 if is_dragging else jaw_thresh))
+        raw_open_palm = self.detect_palm(hand_results)
+
+        left_wink_hold = min(self._get_hold_duration('left_wink', 0.06), 0.08)
+        right_wink_hold = min(self._get_hold_duration('right_wink', 0.06), 0.08)
+        pucker_hold = min(self._get_hold_duration('pucker', 0.10), 0.14)
+
+        L_WINK = self._sustain_gesture('left_wink', raw_left_wink, now, default_hold=0.10, hold_duration=left_wink_hold)
+        R_WINK = self._sustain_gesture('right_wink', raw_right_wink, now, default_hold=0.10, hold_duration=right_wink_hold)
+        BOTH_CLOSED = self._sustain_gesture('both_closed', raw_both_closed, now, default_hold=0.5)
+        PUCKERED = self._sustain_gesture('pucker', raw_pucker, now, default_hold=0.10, hold_duration=pucker_hold)
+        JAW_DROPPED = self._sustain_gesture('jaw_drop', raw_jaw_drop, now, default_hold=0.2)
+        OPEN_PALM = self._sustain_gesture('open_palm', raw_open_palm, now, default_hold=0.2)
+
+        MouseController._gesture_debug_counter += 1
+        if MouseController._gesture_debug_counter % 30 == 0:
+            print(f"[GESTURE] lEAR={l_ear:.3f} rEAR={r_ear:.3f} dL={left_delta:.3f} dR={right_delta:.3f} ratioL={left_ratio:.3f} ratioR={right_ratio:.3f}")
+            print(f"[GESTURE] mouth_ratio={current_m_ratio:.3f} delta={mouth_delta:.3f} jaw={mar:.3f}")
 
         active_gestures = []
-        if L_CLOSED and R_CLOSED:
-            active_gestures.append("both_closed")
-        elif L_CLOSED and R_OPEN:
+
+        if L_WINK:
             active_gestures.append("left_wink")
-        elif R_CLOSED and L_OPEN:
+
+        elif PUCKERED:
+            active_gestures.append("pucker")
+
+        elif R_WINK:
             active_gestures.append("right_wink")
 
-        if JAW_DROPPED: active_gestures.append("jaw_drop")
-        if PUCKERED: active_gestures.append("pucker")
+        elif JAW_DROPPED:
+            active_gestures.append("jaw_drop")
 
-        # Palm detection
-        if self.detect_palm(hand_results):
+        elif BOTH_CLOSED:
+            active_gestures.append("both_closed")
+
+        if OPEN_PALM:
             active_gestures.append("open_palm")
 
         return active_gestures
@@ -224,15 +403,18 @@ class MouseController:
     def process_actions(self, face, hand_results=None):
         now = time.time()
         state_msgs = []
-        cal = getattr(settings, 'GESTURE_CALIBRATION', {})
 
         # 1. Detect physical gestures using the Auto-Agent
-        active_gestures = self.detect_gestures(face, hand_results)
-        if not self.is_agent_calibrated: return ["[ PRESS 'C' TO CALIBRATE AGENT ]"]
+        active_gestures = set(self.detect_gestures(face, hand_results))
+        previous_gestures = self._prev_active_gestures
+        if not self.is_agent_calibrated:
+            previous_gestures = set()
 
         # 2. Get user preferences from settings
         mapping = settings.GESTURE_MAPPINGS
 
+        def gesture_started(gesture_name):
+            return gesture_name and gesture_name != 'none' and gesture_name in active_gestures and gesture_name not in previous_gestures
 
 
         # --- KEYBOARD INPUT: HAND-SWAP WINDOW SWITCH ---
@@ -252,19 +434,16 @@ class MouseController:
 
         # Skip mouse gesture actions if mouse control is disabled
         if not getattr(settings, 'MOUSE_CONTROL_ENABLED', True):
+            self._prev_active_gestures = active_gestures
             return state_msgs
 
         # --- SCROLL ROUTER (respects SCROLL_ENABLED toggle) ---
         scroll_enabled = getattr(settings, 'SCROLL_ENABLED', True)
         scroll_gesture = mapping.get("scroll")
-        if scroll_enabled and scroll_gesture and scroll_gesture != 'none' and scroll_gesture in active_gestures:
-            if self.action_states["scroll_start"] == 0:
-                self.action_states["scroll_start"] = now
-            elif now - self.action_states["scroll_start"] > 0.5:
+        if scroll_enabled and gesture_started(scroll_gesture):
+            if now - self.action_states["scroll_start"] > 0.75:
                 self.action_states["scroll_mode"] = not self.action_states["scroll_mode"]
-                self.action_states["scroll_start"] = now + 1.0  # Cooldown
-        else:
-            self.action_states["scroll_start"] = 0
+                self.action_states["scroll_start"] = now
 
         if self.action_states["scroll_mode"] and scroll_enabled:
             state_msgs.append("[SCROLL MODE ACTIVE]")
@@ -273,9 +452,10 @@ class MouseController:
             angle = math.degrees(math.atan2(dy, max(dx, 0.0001)))
             if now - self.action_states["last_scroll"] > 0.05:
                 if angle > 10:
-                    pyautogui.scroll(60); self.action_states["last_scroll"] = now
+                    self._scroll(60); self.action_states["last_scroll"] = now
                 elif angle < -10:
-                    pyautogui.scroll(-60); self.action_states["last_scroll"] = now
+                    self._scroll(-60); self.action_states["last_scroll"] = now
+            self._prev_active_gestures = active_gestures
             return state_msgs  # Block other clicks while scrolling
         elif not scroll_enabled:
             self.action_states["scroll_mode"] = False
@@ -283,71 +463,50 @@ class MouseController:
         # --- DRAG ROUTER ---
         drag_gesture = mapping.get("drag_drop")
         if drag_gesture and drag_gesture != 'none' and drag_gesture in active_gestures:
-            if self.action_states["drag_start"] == 0:
-                self.action_states["drag_start"] = now
-            elif now - self.action_states["drag_start"] > 0.2:
-                if not self.action_states["is_dragging"]:
-                    pyautogui.mouseDown()
-                    self.action_states["is_dragging"] = True
-                state_msgs.append("[ DRAGGING ACTIVE ]")
+            if not self.action_states["is_dragging"]:
+                self._left_down()
+                self.action_states["is_dragging"] = True
+            state_msgs.append("[ DRAGGING ACTIVE ]")
         else:
-            self.action_states["drag_start"] = 0
             if self.action_states["is_dragging"]:
-                pyautogui.mouseUp()
+                self._left_up()
                 self.action_states["is_dragging"] = False
                 state_msgs.append("DROPPED")
 
         # --- LEFT CLICK ROUTER ---
         l_click_gesture = mapping.get("left_click")
-        if l_click_gesture and l_click_gesture != 'none' and l_click_gesture in active_gestures:
-            if self.action_states["left_click_start"] == 0:
-                self.action_states["left_click_start"] = now
-            elif now - self.action_states["left_click_start"] > cal.get('left_wink', {}).get('hold_duration', 0.15):
-                if not self.action_states["is_clicking"]:
-                    pyautogui.click()
-                    self.action_states["is_clicking"] = True
-                    state_msgs.append("LEFT CLICK")
+        if gesture_started(l_click_gesture):
+            if not self.action_states["is_clicking"]:
+                self._left_click()
+                self.action_states["is_clicking"] = True
+                state_msgs.append("LEFT CLICK")
+                print("[ACTION] LEFT CLICK")
         else:
-            self.action_states["left_click_start"] = 0
             self.action_states["is_clicking"] = False
 
         # --- RIGHT CLICK ROUTER ---
         r_click_gesture = mapping.get("right_click")
-        if r_click_gesture and r_click_gesture != 'none' and r_click_gesture in active_gestures:
-            if self.action_states["right_click_start"] == 0:
-                self.action_states["right_click_start"] = now
-            elif now - self.action_states["right_click_start"] > cal.get('right_wink', {}).get('hold_duration', 0.20):
-                if now - self.action_states["last_right_click"] > 0.8:
-                    pyautogui.rightClick()
-                    self.action_states["last_right_click"] = now
-                    state_msgs.append("RIGHT CLICK")
-        else:
-            self.action_states["right_click_start"] = 0
+        if gesture_started(r_click_gesture) and now - self.action_states["last_right_click"] > 0.8:
+            self._right_click()
+            self.action_states["last_right_click"] = now
+            state_msgs.append("RIGHT CLICK")
+            print("[ACTION] RIGHT CLICK")
 
         # --- DOUBLE CLICK ROUTER ---
         d_click_gesture = mapping.get("double_click")
-        if d_click_gesture and d_click_gesture != 'none' and d_click_gesture in active_gestures:
-            if self.action_states["double_click_start"] == 0:
-                self.action_states["double_click_start"] = now
-            elif now - self.action_states["double_click_start"] > cal.get('pucker', {}).get('hold_duration', 0.20):
-                if now - self.action_states["last_double_click"] > 1.0:
-                    pyautogui.doubleClick()
-                    self.action_states["last_double_click"] = now
-                    state_msgs.append("DOUBLE CLICK")
-        else:
-            self.action_states["double_click_start"] = 0
+        if gesture_started(d_click_gesture) and now - self.action_states["last_double_click"] > 1.0:
+            self._double_click()
+            self.action_states["last_double_click"] = now
+            state_msgs.append("DOUBLE CLICK")
+            print("[ACTION] DOUBLE CLICK")
 
         # --- MEDIA PLAY/PAUSE ROUTER ---
         media_gesture = mapping.get("media_play_pause")
-        if media_gesture and media_gesture != 'none' and media_gesture in active_gestures:
-            if self.action_states["media_pp_start"] == 0:
-                self.action_states["media_pp_start"] = now
-            elif now - self.action_states["media_pp_start"] > cal.get('open_palm', {}).get('hold_duration', 0.20):
-                if now - self.action_states["last_media_pp"] > 1.5:
-                    pyautogui.press('playpause')
-                    self.action_states["last_media_pp"] = now
-                    state_msgs.append("MEDIA PLAY/PAUSE")
-        else:
-            self.action_states["media_pp_start"] = 0
+        if gesture_started(media_gesture) and now - self.action_states["last_media_pp"] > 1.5:
+            pyautogui.press('playpause')
+            self.action_states["last_media_pp"] = now
+            state_msgs.append("MEDIA PLAY/PAUSE")
+            print("[ACTION] MEDIA PLAY/PAUSE")
 
+        self._prev_active_gestures = active_gestures
         return state_msgs

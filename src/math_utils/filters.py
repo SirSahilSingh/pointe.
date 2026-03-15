@@ -201,25 +201,38 @@ class MotionEngine:
         tilt_x = self._raw_x * invert_x
         tilt_y = self._raw_y
 
-        # ② CIRCULAR DEAD ZONE: use combined tilt magnitude
-        # This allows diagonal movement — both axes evaluated together
+        # ② CALCULATE TRUE VECTOR MAGNITUDE AND DIRECTION
         tilt_magnitude = math.sqrt(tilt_x * tilt_x + tilt_y * tilt_y)
         in_dead_zone = tilt_magnitude < self.dead_zone
-
+        
         if in_dead_zone:
             # Head near neutral: zero velocity on both axes
             self._vx = 0.0
             self._vy = 0.0
         else:
-            # ③ QUADRATIC SPEED CURVE per-axis (preserves direction)
-            target_vx = self._quadratic_speed(tilt_x)
-            target_vy = self._quadratic_speed(tilt_y)
+            # Normalize magnitude mapping to [0, 1] beyond dead zone
+            range_denom = self.max_tilt - self.dead_zone
+            if range_denom <= 0:
+                range_denom = 0.1
+            
+            normalized_mag = (tilt_magnitude - self.dead_zone) / range_denom
+            normalized_mag = min(normalized_mag, 1.0)
+            
+            # Quadratic curve: fine precision at small tilts, high speed at large tilts
+            speed = normalized_mag * normalized_mag * self.max_speed
+            
+            # Project speed back onto X and Y axes using normalized direction vectors
+            dir_x = tilt_x / tilt_magnitude
+            dir_y = tilt_y / tilt_magnitude
+            
+            target_vx = dir_x * speed
+            target_vy = dir_y * speed
 
-            # ④ Apply sensitivity
+            # ③ Apply sensitivity multipliers
             target_vx *= self._sens_x
             target_vy *= self._sens_y
 
-            # ⑤ Zoom compensation (closer = slower for same tilt)
+            # ④ Zoom compensation (closer = slower for same tilt)
             zoom_factor = max(zoom, 0.5)
             target_vx /= zoom_factor
             target_vy /= zoom_factor
@@ -258,6 +271,19 @@ class MotionEngine:
         self._last_dead_zone_y = in_dead_zone
 
         return dx_pixels, dy_pixels
+
+    def reset_velocity(self, reset_x=True, reset_y=True):
+        """Instantly kill velocity on the specified axes (used for screen bounds)."""
+        if reset_x:
+            self._vx = 0.0
+            self._euro_vx._x_prev = 0.0
+            self._euro_vx._dx_prev = 0.0
+            self._last_vx = 0.0
+        if reset_y:
+            self._vy = 0.0
+            self._euro_vy._x_prev = 0.0
+            self._euro_vy._dx_prev = 0.0
+            self._last_vy = 0.0
 
     @property
     def debug_state(self):

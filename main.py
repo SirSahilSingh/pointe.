@@ -241,13 +241,14 @@ def main():
     mouse = MouseController()
     motion_engine = MotionEngine()
 
-    # --- HUD disabled for testing (tkinter blocking issue) ---
+    # --- DYNAMIC ISLAND HUD ---
+    from src.controllers.hud import FloatingHUD
+    hud = FloatingHUD()
+
+    # --- Debug telemetry (disabled while HUD is off) ---
     class _NoOpHUD:
         """Stub that silently eats all HUD/telemetry calls."""
         def __getattr__(self, _): return lambda *a, **kw: None
-    hud = _NoOpHUD()
-
-    # --- Debug telemetry (disabled while HUD is off) ---
     telemetry = _NoOpHUD()
     signal_log = SignalLogger()
     noise_tool = NoiseMeasurement()
@@ -323,6 +324,8 @@ def main():
         if trigger_recalibrate:
             parallax.is_calibrated = False
             motion_engine.reset()
+            if hasattr(mouse, 'reset_agent_calibration'):
+                mouse.reset_agent_calibration()
             # Move cursor to screen center on recalibrate
             mouse.cursor_x = mouse.center_x
             mouse.cursor_y = mouse.center_y
@@ -369,10 +372,16 @@ def main():
                     parallax.calibrate(t_yaw, t_pitch, t_fw_norm)
                     calibrated_fw_norm = t_fw_norm
                     is_mirrored = t_left_ear > t_right_ear
-                    mouse.calibrate_agent(t_face)
                     motion_engine.reset()
-                    hud.show_message("CALIBRATION COMPLETE", 60)
+                    
+                if not mouse.is_agent_calibrated:
+                    agent_ready = mouse.calibrate_agent(t_face)
+                    if agent_ready or mouse.is_agent_calibrated:
+                        hud.show_message("CALIBRATION COMPLETE", 60)
 
+                global _last_face
+                _last_face = t_face
+                
                 _last_auto_invert_x = 1 if is_mirrored else -1
                 _last_raw_dx = t_yaw - parallax.neutral_x
                 _last_raw_dy = t_pitch - parallax.neutral_y
@@ -398,7 +407,14 @@ def main():
             dx_px, dy_px = motion_engine.update(
                 _last_raw_dx, _last_raw_dy,
                 _last_auto_invert_x, _last_aspect_ratio, _last_zoom)
-            mouse.move(dx_px, dy_px)
+            
+            # Move cursor and check if we hit physical screen bounds
+            hit_x, hit_y = mouse.move(dx_px, dy_px)
+            
+            # If we hit an edge, instantly kill velocity on that axis 
+            # so momentum doesn't build up "off-screen"
+            if hit_x or hit_y:
+                motion_engine.reset_velocity(reset_x=hit_x, reset_y=hit_y)
 
             # Debug telemetry
             dbg = motion_engine.debug_state
@@ -488,6 +504,14 @@ def main():
                 print(f"  {'MediaPipe Avg':<18s}: {avg_mp_ms:7.1f} ms/frame")
                 print(f"  {'Loop iterations':<18s}: {_perf_loop_count:7d}")
                 print(f"  {'New MP results':<18s}: {_perf_new_results:7d}")
+                
+                # Live Gesture Math Telemetry
+                if hasattr(mouse, 'base_l_ear'):
+                    print(f"  --- LIVE GESTURE MATH ---")
+                    print(f"  L_Eye : base {mouse.base_l_ear:.3f} | curr {mouse.get_ear(_last_face, 386, 374, 362, 263) if hasattr(globals(), '_last_face') else 0:.3f}")
+                    print(f"  R_Eye : base {mouse.base_r_ear:.3f} | curr {mouse.get_ear(_last_face, 159, 145, 133, 33) if hasattr(globals(), '_last_face') else 0:.3f}")
+                    print(f"  Mouth : base {mouse.base_mar:.3f} | curr {(mouse.get_norm_dist(_last_face, 13, 14) / mouse.get_norm_dist(_last_face, 61, 291)) if hasattr(globals(), '_last_face') and mouse.get_norm_dist(_last_face, 61, 291) > 0 else 0:.3f}")
+                
                 print("==========================")
                 _perf_loop_count = 0
                 _perf_new_results = 0
@@ -510,4 +534,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()
