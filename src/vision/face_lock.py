@@ -67,6 +67,30 @@ class FaceLockManager:
     def _cosine_similarity(a, b):
         return float(np.dot(a, b))
 
+    def _save_thumbnail(self, frame, face_id):
+        """Detect face in frame, crop, resize to 128x128, and save as .jpg thumbnail."""
+        try:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.face_mesh.process(rgb)
+            if not results.multi_face_landmarks:
+                return
+            face = results.multi_face_landmarks[0]
+            h, w = frame.shape[:2]
+            xs = [lm.x * w for lm in face.landmark]
+            ys = [lm.y * h for lm in face.landmark]
+            x1 = max(0, int(min(xs)) - 20)
+            y1 = max(0, int(min(ys)) - 20)
+            x2 = min(w, int(max(xs)) + 20)
+            y2 = min(h, int(max(ys)) + 20)
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                return
+            thumb = cv2.resize(crop, (128, 128))
+            thumb_path = os.path.join(DATA_DIR, f'{face_id}.jpg')
+            cv2.imwrite(thumb_path, thumb)
+        except Exception as e:
+            print(f"[FACE LOCK] Thumbnail save failed: {e}")
+
     # ─── REGISTRATION ──────────────────────────────────────────
 
     def _load_all_faces(self):
@@ -99,6 +123,7 @@ class FaceLockManager:
         face_id = uuid.uuid4().hex[:8]
         np.save(os.path.join(DATA_DIR, f'{face_id}.npy'), embedding)
         self.registered_faces[face_id] = embedding
+        self._save_thumbnail(frame, face_id)
         print(f"[FACE LOCK] Registered face: {face_id}")
         return face_id, ''
 
@@ -110,10 +135,14 @@ class FaceLockManager:
             return None, "Maximum of 5 faces already registered."
 
         embeddings = []
+        thumbnail_frame = None
+
         for frame in frames:
             emb = self._extract_embedding(frame)
             if emb is not None:
                 embeddings.append(emb)
+                if thumbnail_frame is None:
+                    thumbnail_frame = frame
 
         if len(embeddings) < 2:
             return None, "Could not detect face in enough poses. Please try again."
@@ -127,6 +156,10 @@ class FaceLockManager:
         face_id = uuid.uuid4().hex[:8]
         np.save(os.path.join(DATA_DIR, f'{face_id}.npy'), avg_embedding)
         self.registered_faces[face_id] = avg_embedding
+
+        if thumbnail_frame is not None:
+            self._save_thumbnail(thumbnail_frame, face_id)
+
         print(f"[FACE LOCK] Registered face (multi-pose): {face_id}")
         return face_id, ''
 
@@ -249,7 +282,11 @@ class FaceLockManager:
 
     @staticmethod
     def _lock_screen():
-        """Lock the Windows workstation."""
+        """Lock the workstation (Windows only)."""
+        import sys as _sys
+        if _sys.platform != 'win32':
+            print("[FACE LOCK] Screen locking is only supported on Windows.")
+            return
         try:
             import ctypes
             ctypes.windll.user32.LockWorkStation()

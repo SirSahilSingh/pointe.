@@ -3,6 +3,7 @@ import numpy as np
 import math
 import time
 import os
+from collections import deque
 import settings
 
 # Native cursor API for lower latency (Windows only)
@@ -43,6 +44,8 @@ class MouseController:
         
         self.base_l_ear = 0.25  # Left Eye resting width
         self.base_r_ear = 0.25  # Right Eye resting width
+        self.base_l_brow_eye = 0.055
+        self.base_r_brow_eye = 0.055
         self.base_mar = 0.05  # Mouth resting height
         self.base_m_ratio = 0.35  # Resting mouth width
 
@@ -66,8 +69,22 @@ class MouseController:
         # --- PINCH / HAND-SWAP STATES ---
         self.is_pinching = False
         self.last_pinch_time = 0
-        self.last_hand_label = None
-        self.last_hand_swap_time = 0
+
+        # --- PREMIUM SWIPE DETECTION STATE ---
+        self._swipe_history = deque(maxlen=20)       # Rolling buffer: (timestamp, smoothed_x)
+        self._swipe_smooth_x = None                  # EMA-smoothed hand X position
+        self._swipe_state = {
+            "phase": "idle",              # idle -> armed -> fired
+            "stable_side": 0,             # Candidate side while waiting to arm
+            "stable_since": 0.0,          # Timestamp when the palm became stable
+            "arm_side": 0,                # Side from which the active swipe started
+            "arm_origin_x": 0.0,          # Smoothed X value when the swipe armed
+            "arm_origin_time": 0.0,       # Timestamp when the swipe armed
+            "fired_direction": 0,         # Direction of the last emitted swipe
+            "settle_since": 0.0,          # When the post-trigger settle condition began
+            "last_trigger_time": 0.0,     # Cooldown timestamp
+            "last_seen_time": 0.0,        # Last time hand was visible
+        }
 
         self.face_missing_start = 0
         self.has_auto_paused = False
@@ -80,8 +97,24 @@ class MouseController:
         self._prev_m_ratio = 0.0
         self.base_l_ear = 0.25
         self.base_r_ear = 0.25
+        self.base_l_brow_eye = 0.055
+        self.base_r_brow_eye = 0.055
         self.base_mar = 0.05
         self.base_m_ratio = 0.35
+        self._swipe_history.clear()
+        self._swipe_smooth_x = None
+        self._swipe_state.update({
+            "phase": "idle",
+            "stable_side": 0,
+            "stable_since": 0.0,
+            "arm_side": 0,
+            "arm_origin_x": 0.0,
+            "arm_origin_time": 0.0,
+            "fired_direction": 0,
+            "settle_since": 0.0,
+            "last_trigger_time": 0.0,
+            "last_seen_time": 0.0,
+        })
 
     # --- 1. THE AUTO-AGENT CALIBRATOR ---
     def calibrate_agent(self, face):
@@ -91,6 +124,8 @@ class MouseController:
         
         r_ear = self.get_ear(face, 159, 145, 133, 33)
         l_ear = self.get_ear(face, 386, 374, 362, 263)
+        r_brow_eye = self.get_norm_dist(face, 105, 159)
+        l_brow_eye = self.get_norm_dist(face, 334, 386)
         mouth_w = self.get_norm_dist(face, 61, 291)
         mouth_h = self.get_norm_dist(face, 13, 14)
         face_w = self.get_norm_dist(face, 234, 454)
@@ -104,13 +139,17 @@ class MouseController:
             return False
         
         self._calibration_samples.append({
-            'l_ear': l_ear, 'r_ear': r_ear, 'mar': mar, 'm_ratio': m_ratio
+            'l_ear': l_ear, 'r_ear': r_ear,
+            'l_brow_eye': l_brow_eye, 'r_brow_eye': r_brow_eye,
+            'mar': mar, 'm_ratio': m_ratio
         })
         
         if len(self._calibration_samples) >= self._TARGET_CALIBRATION_FRAMES:
             # Calculate averages
             self.base_l_ear = sum(s['l_ear'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
             self.base_r_ear = sum(s['r_ear'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
+            self.base_l_brow_eye = sum(s['l_brow_eye'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
+            self.base_r_brow_eye = sum(s['r_brow_eye'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
             self.base_mar = sum(s['mar'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
             self.base_m_ratio = sum(s['m_ratio'] for s in self._calibration_samples) / self._TARGET_CALIBRATION_FRAMES
             
@@ -252,14 +291,13 @@ class MouseController:
         # Finger tip and PIP indices (thumb uses IP instead of PIP)
         # Thumb: tip=4, ip=3  |  Index: tip=8, pip=6
         # Middle: tip=12, pip=10  |  Ring: tip=16, pip=14  |  Pinky: tip=20, pip=18
-        thumb_open = lm[4].x < lm[3].x  # Thumb extends outward (for right hand)
-        # For robustness, check if thumb tip is far from palm
         index_open = lm[8].y < lm[6].y
         middle_open = lm[12].y < lm[10].y
         ring_open = lm[16].y < lm[14].y
         pinky_open = lm[20].y < lm[18].y
+        open_count = sum((index_open, middle_open, ring_open, pinky_open))
 
-        return index_open and middle_open and ring_open and pinky_open
+        return open_count >= 3
 
     def detect_pinch(self, hand_results):
         """Detects pinch gesture (thumb tip close to index finger tip)."""
@@ -276,6 +314,425 @@ class MouseController:
         if not hand_results or not hand_results.multi_handedness:
             return None
         return hand_results.multi_handedness[0].classification[0].label
+
+    def get_hand_confidence(self, hand_results):
+        if not hand_results or not hand_results.multi_handedness:
+            return 1.0
+        try:
+            return float(hand_results.multi_handedness[0].classification[0].score)
+        except Exception:
+            return 1.0
+
+    def _reset_swipe_tracking(self, preserve_cooldown=True):
+        """Clear all swipe state for a fresh start."""
+        last_trigger_time = self._swipe_state["last_trigger_time"] if preserve_cooldown else 0.0
+        last_seen_time = self._swipe_state["last_seen_time"] if preserve_cooldown else 0.0
+        self._swipe_history.clear()
+        self._swipe_smooth_x = None
+        self._swipe_state.update({
+            "phase": "idle",
+            "stable_side": 0,
+            "stable_since": 0.0,
+            "arm_side": 0,
+            "arm_origin_x": 0.0,
+            "arm_origin_time": 0.0,
+            "fired_direction": 0,
+            "settle_since": 0.0,
+            "last_trigger_time": last_trigger_time,
+            "last_seen_time": last_seen_time,
+        })
+
+    def _arm_hand_swap(self, side, rel_x, now):
+        """Enter the armed phase once the palm is stable on a start side."""
+        self._swipe_history.clear()
+        self._swipe_history.append((now, rel_x))
+        self._swipe_state.update({
+            "phase": "armed",
+            "stable_side": 0,
+            "stable_since": 0.0,
+            "arm_side": side,
+            "arm_origin_x": rel_x,
+            "arm_origin_time": now,
+            "settle_since": 0.0,
+        })
+
+    def _maybe_rearm_after_fire(self, rel_x, rel_y, palm_active, now):
+        """Ignore the return path until the hand settles or leaves the activation zone."""
+        state = self._swipe_state
+
+        _REARM_SETTLE = 0.10
+        _REARM_NEUTRAL_BAND = 0.22
+        _REARM_SIDE_BAND = 0.38
+        _LOWER_Y_THRESHOLD = 0.95
+        _MAX_FIRE_HOLD = 1.0
+
+        settled = (
+            not palm_active or
+            abs(rel_x) <= _REARM_NEUTRAL_BAND or
+            abs(rel_x) >= _REARM_SIDE_BAND or
+            rel_y >= _LOWER_Y_THRESHOLD
+        )
+
+        if settled:
+            if state["settle_since"] == 0.0:
+                state["settle_since"] = now
+            elif now - state["settle_since"] >= _REARM_SETTLE:
+                self._reset_swipe_tracking(preserve_cooldown=True)
+        else:
+            state["settle_since"] = 0.0
+
+        if now - state["last_trigger_time"] >= _MAX_FIRE_HOLD:
+            self._reset_swipe_tracking(preserve_cooldown=True)
+
+    def _advance_hand_swap_state(self, *, rel_x=None, rel_y=0.0, palm_active=False, hand_visible=False, now=None):
+        """Advance the window-swipe state machine from normalized hand samples."""
+        if now is None:
+            now = time.time()
+
+        state = self._swipe_state
+
+        _ARM_SIDE_THRESHOLD = 0.28
+        _ARM_HOLD = 0.04
+        _ARM_TIMEOUT = 1.0
+        _HISTORY_WINDOW = 0.75
+        _COOLDOWN = 0.45
+        _MIN_TRAVEL = 0.24
+        _CENTER_CROSS = 0.00
+        _MIN_SPEED = 0.35
+        _MIN_CONSISTENCY = 0.55
+        _MISSING_RESET = 0.30
+        _DROP_BEFORE_TRIGGER_Y = 1.25
+
+        if hand_visible:
+            state["last_seen_time"] = now
+        elif now - state["last_seen_time"] > _MISSING_RESET:
+            self._reset_swipe_tracking(preserve_cooldown=True)
+            return None
+
+        if state["phase"] == "fired":
+            if hand_visible and rel_x is not None:
+                self._maybe_rearm_after_fire(rel_x, rel_y, palm_active, now)
+            return None
+
+        if not hand_visible or rel_x is None:
+            return None
+
+        side = 1 if rel_x >= _ARM_SIDE_THRESHOLD else (-1 if rel_x <= -_ARM_SIDE_THRESHOLD else 0)
+
+        if state["phase"] == "idle":
+            if palm_active and side != 0:
+                if state["stable_side"] != side:
+                    state["stable_side"] = side
+                    state["stable_since"] = now
+                elif now - state["stable_since"] >= _ARM_HOLD:
+                    self._arm_hand_swap(side, rel_x, now)
+            else:
+                state["stable_side"] = 0
+                state["stable_since"] = 0.0
+            return None
+
+        if state["phase"] != "armed":
+            return None
+
+        if rel_y >= _DROP_BEFORE_TRIGGER_Y:
+            self._reset_swipe_tracking(preserve_cooldown=True)
+            return None
+
+        arm_side = state["arm_side"]
+        if arm_side == 0:
+            self._reset_swipe_tracking(preserve_cooldown=True)
+            return None
+
+        expected_dir = -arm_side
+
+        # Let the palm settle slightly farther out before the actual cross-face sweep starts.
+        if side == arm_side and (rel_x - state["arm_origin_x"]) * arm_side > 0:
+            state["arm_origin_x"] = rel_x
+            state["arm_origin_time"] = now
+            self._swipe_history.clear()
+            self._swipe_history.append((now, rel_x))
+            return None
+
+        self._swipe_history.append((now, rel_x))
+        while self._swipe_history and now - self._swipe_history[0][0] > _HISTORY_WINDOW:
+            self._swipe_history.popleft()
+
+        progress = (rel_x - state["arm_origin_x"]) * expected_dir
+        crossed_center = rel_x * arm_side <= -_CENTER_CROSS
+
+        if now - state["arm_origin_time"] > _ARM_TIMEOUT and progress < _MIN_TRAVEL:
+            self._reset_swipe_tracking(preserve_cooldown=True)
+            return None
+
+        if progress < -0.12:
+            self._reset_swipe_tracking(preserve_cooldown=True)
+            return None
+
+        if len(self._swipe_history) < 3 or not crossed_center or progress < _MIN_TRAVEL:
+            return None
+
+        deltas = [self._swipe_history[i + 1][1] - self._swipe_history[i][1] for i in range(len(self._swipe_history) - 1)]
+        agreeing = sum(1 for delta in deltas if delta == 0 or delta * expected_dir > 0)
+        consistency = agreeing / len(deltas)
+        if consistency < _MIN_CONSISTENCY:
+            return None
+
+        dt = now - state["arm_origin_time"]
+        speed = progress / dt if dt > 0 else 0.0
+        if speed < _MIN_SPEED:
+            return None
+
+        if now - state["last_trigger_time"] < _COOLDOWN:
+            return None
+
+        event = "WINDOW_NEXT" if expected_dir > 0 else "WINDOW_PREV"
+        state.update({
+            "phase": "fired",
+            "fired_direction": expected_dir,
+            "settle_since": 0.0,
+            "stable_side": 0,
+            "stable_since": 0.0,
+            "last_trigger_time": now,
+        })
+        self._swipe_history.clear()
+        self._swipe_history.append((now, rel_x))
+
+        print(f"[SWIPE] {event} arm_side={arm_side:+d} progress={progress:.3f} "
+              f"speed={speed:.2f} consistency={consistency:.0%} rel_x={rel_x:.3f}")
+        return event
+
+    _swipe_debug_counter = 0
+
+    def _legacy_detect_hand_swap_event(self, face, hand_results, now=None):
+        """Premium hand swipe detector for window switching.
+
+        Pipeline:
+          1. Orientation-independent hand center (averaged base joints)
+          2. Face-width normalization
+          3. EMA smoothing (kills single-frame jitter)
+          4. Rolling motion history buffer (auto-pruned to 600ms)
+          5. Direction consistency voting (≥70% agreement)
+          6. Early intent trigger (displacement + speed + consistency)
+          7. One-shot lock with smart reset
+
+        Returns 'WINDOW_NEXT', 'WINDOW_PREV', or None.
+        """
+        if now is None:
+            now = time.time()
+
+        state = self._swipe_state
+
+        # ── No hand visible: decay and reset ──────────────────────────────
+        if face is None or not hand_results or not hand_results.multi_hand_landmarks:
+            if now - state["last_seen_time"] > 0.4:
+                self._reset_swipe_tracking()
+            return None
+
+        # Low-confidence detections are noise
+        if self.get_hand_confidence(hand_results) < 0.25:
+            return None
+
+        # ── 1. Orientation-independent hand center ────────────────────────
+        # Average of wrist (0) + all MCP bases (5, 9, 13, 17)
+        # Works regardless of palm/edge/tilted orientation
+        hand = hand_results.multi_hand_landmarks[0]
+        raw_hand_x = sum(hand.landmark[i].x for i in (0, 5, 9, 13, 17)) / 5.0
+
+        # ── 2. Face-width normalization ───────────────────────────────────
+        face_center_x = (face.landmark[234].x + face.landmark[454].x) / 2.0
+        face_width = abs(face.landmark[454].x - face.landmark[234].x)
+        if face_width < 0.05:
+            return None
+
+        raw_rel_x = (raw_hand_x - face_center_x) / face_width
+
+        # ── 3. EMA smoothing (α=0.4: low lag, kills jitter) ──────────────
+        _EMA_ALPHA = 0.4
+        if self._swipe_smooth_x is None:
+            self._swipe_smooth_x = raw_rel_x
+        else:
+            self._swipe_smooth_x += _EMA_ALPHA * (raw_rel_x - self._swipe_smooth_x)
+
+        rel_x = self._swipe_smooth_x
+
+        # ── 4. Rolling motion history ─────────────────────────────────────
+        self._swipe_history.append((now, rel_x))
+        state["last_seen_time"] = now
+
+        # Prune to 600ms window (fast swipes happen within this)
+        _HISTORY_WINDOW = 0.6
+        while self._swipe_history and now - self._swipe_history[0][0] > _HISTORY_WINDOW:
+            self._swipe_history.popleft()
+
+        # ── Smart reset logic (unlock the one-shot lock) ──────────────────
+        if state["locked"]:
+            # Calculate instantaneous speed from last 3 samples
+            if len(self._swipe_history) >= 3:
+                t_recent = self._swipe_history[-1][0] - self._swipe_history[-3][0]
+                x_recent = self._swipe_history[-1][1] - self._swipe_history[-3][1]
+                inst_speed = abs(x_recent) / t_recent if t_recent > 0 else 0.0
+
+                # Detect direction reversal from trigger direction
+                recent_dir = 1 if x_recent > 0 else (-1 if x_recent < 0 else 0)
+                direction_reversed = (
+                    state["lock_direction"] != 0 and
+                    recent_dir != 0 and
+                    recent_dir != state["lock_direction"]
+                )
+
+                # Returned close to lock position
+                returned_to_origin = abs(rel_x - state["lock_x"]) < 0.15
+
+                # Motion has stopped
+                motion_stopped = inst_speed < 0.3
+
+                if direction_reversed or returned_to_origin or motion_stopped:
+                    state["locked"] = False
+                    state["lock_direction"] = 0
+                    self._swipe_history.clear()
+                    self._swipe_smooth_x = None
+
+            return None
+
+        # ── Cooldown guard (minimum 0.6s between triggers) ────────────────
+        _COOLDOWN = 0.6
+        if now - state["last_trigger_time"] < _COOLDOWN:
+            return None
+
+        # ── Need at least 4 samples for meaningful analysis ───────────────
+        if len(self._swipe_history) < 4:
+            return None
+
+        # ── 5-7. Swipe analysis pipeline ──────────────────────────────────
+        xs = [x for _, x in self._swipe_history]
+        ts = [t for t, _ in self._swipe_history]
+
+        _MIN_DISPLACEMENT = 0.35   # 35% face width (early intent — before full crossing)
+        _MIN_SPEED = 1.2           # 1.2 face-widths/second (momentum awareness)
+        _MIN_CONSISTENCY = 0.70    # 70% of segments must agree on direction
+        _MIN_TIME_SPAN = 0.06      # Minimum time span to reject tracking glitches
+
+        event_triggered = None
+
+        # Scan sub-windows ending at latest sample (catches fast bursts)
+        for i in range(len(xs) - 3, -1, -1):
+            dx = xs[-1] - xs[i]
+            dt = ts[-1] - ts[i]
+
+            if dt < _MIN_TIME_SPAN:
+                continue
+
+            abs_dx = abs(dx)
+            if abs_dx < _MIN_DISPLACEMENT:
+                continue
+
+            speed = abs_dx / dt
+            if speed < _MIN_SPEED:
+                continue
+
+            # ── Direction consistency voting ──────────────────────────
+            sub_xs = xs[i:]
+            n_segments = len(sub_xs) - 1
+            if n_segments < 2:
+                continue
+
+            target_dir = 1 if dx > 0 else -1
+            agreeing = 0
+            for k in range(n_segments):
+                seg_delta = sub_xs[k + 1] - sub_xs[k]
+                if seg_delta * target_dir > 0:   # Same sign = agrees
+                    agreeing += 1
+                # Zero-delta segments are neutral (not counted against)
+                elif seg_delta == 0:
+                    agreeing += 1
+
+            consistency = agreeing / n_segments
+            if consistency < _MIN_CONSISTENCY:
+                continue
+
+            # ── Momentum check: recent 3-sample speed ────────────────
+            t3 = ts[-1] - ts[-3]
+            x3 = abs(xs[-1] - xs[-3])
+            recent_speed = x3 / t3 if t3 > 0 else 0.0
+            if recent_speed < _MIN_SPEED * 0.6:  # Decelerating too much
+                continue
+
+            # ── TRIGGER ───────────────────────────────────────────────
+            event = "WINDOW_NEXT" if dx > 0 else "WINDOW_PREV"
+
+            # Engage one-shot lock
+            state["locked"] = True
+            state["lock_x"] = rel_x
+            state["lock_direction"] = target_dir
+            state["last_trigger_time"] = now
+            self._swipe_history.clear()
+            self._swipe_smooth_x = None
+
+            print(f"[SWIPE] {event}  dx={dx:.3f}  dt={dt:.3f}  "
+                  f"spd={speed:.1f}  consist={consistency:.0%}  "
+                  f"recent_spd={recent_speed:.1f}")
+            event_triggered = event
+            break
+
+        if event_triggered:
+            return event_triggered
+
+        # ── Debug logging (every 20 frames) ───────────────────────────────
+        MouseController._swipe_debug_counter += 1
+        if MouseController._swipe_debug_counter % 20 == 0:
+            total_dx = xs[-1] - xs[0]
+            total_dt = ts[-1] - ts[0]
+            if total_dt > 0:
+                print(f"[SWIPE_DBG] dx={total_dx:.3f} dt={total_dt:.3f} "
+                      f"rel_x={rel_x:.3f} locked={state['locked']}")
+
+        return None
+
+    def detect_hand_swap_event(self, face, hand_results, now=None):
+        """Detect a deliberate open-palm sweep across the face for window switching."""
+        if now is None:
+            now = time.time()
+
+        if face is None or not hand_results or not hand_results.multi_hand_landmarks:
+            return self._advance_hand_swap_state(hand_visible=False, now=now)
+
+        if self.get_hand_confidence(hand_results) < 0.25:
+            return self._advance_hand_swap_state(hand_visible=False, now=now)
+
+        hand = hand_results.multi_hand_landmarks[0]
+        raw_hand_x = sum(hand.landmark[i].x for i in (0, 5, 9, 13, 17)) / 5.0
+        raw_hand_y = sum(hand.landmark[i].y for i in (0, 5, 9, 13, 17)) / 5.0
+
+        face_center_x = (face.landmark[234].x + face.landmark[454].x) / 2.0
+        face_center_y = (face.landmark[10].y + face.landmark[152].y) / 2.0
+        face_width = abs(face.landmark[454].x - face.landmark[234].x)
+        if face_width < 0.05:
+            return None
+
+        raw_rel_x = (raw_hand_x - face_center_x) / face_width
+        raw_rel_y = (raw_hand_y - face_center_y) / face_width
+
+        _EMA_ALPHA = 0.45
+        if self._swipe_smooth_x is None:
+            self._swipe_smooth_x = raw_rel_x
+        else:
+            self._swipe_smooth_x += _EMA_ALPHA * (raw_rel_x - self._swipe_smooth_x)
+
+        rel_x = self._swipe_smooth_x
+        palm_active = self.detect_palm(hand_results)
+
+        MouseController._swipe_debug_counter += 1
+        if MouseController._swipe_debug_counter % 20 == 0:
+            print(f"[SWIPE_DBG] rel_x={rel_x:.3f} rel_y={raw_rel_y:.3f} "
+                  f"palm={palm_active} phase={self._swipe_state['phase']}")
+
+        return self._advance_hand_swap_state(
+            rel_x=rel_x,
+            rel_y=raw_rel_y,
+            palm_active=palm_active,
+            hand_visible=True,
+            now=now,
+        )
 
     # --- 5. GESTURE DETECTION (The Hardware Agnostic Layer) ---
     _gesture_debug_counter = 0
@@ -307,6 +764,8 @@ class MouseController:
 
         r_ear = self.get_ear(face, 159, 145, 133, 33)
         l_ear = self.get_ear(face, 386, 374, 362, 263)
+        r_brow_eye = self.get_norm_dist(face, 105, 159)
+        l_brow_eye = self.get_norm_dist(face, 334, 386)
 
         mouth_w = self.get_norm_dist(face, 61, 291)
         mouth_h = self.get_norm_dist(face, 13, 14)
@@ -337,14 +796,16 @@ class MouseController:
         right_closed_enough = right_ratio <= right_wink_threshold or right_delta >= 0.18 or r_ear <= abs_eye_closed
         left_eye_open_enough = left_ratio >= max(0.78, other_eye_open_guard) or l_ear >= abs_eye_open
         right_eye_open_enough = right_ratio >= max(0.78, other_eye_open_guard) or r_ear >= abs_eye_open
+        left_brow_raised = l_brow_eye >= max(self.base_l_brow_eye * 1.15, self.base_l_brow_eye + 0.012)
+        right_brow_raised = r_brow_eye >= max(self.base_r_brow_eye * 1.15, self.base_r_brow_eye + 0.012)
         eye_separation = abs(l_ear - r_ear)
 
         raw_left_wink = (
-            ((left_closed_enough and right_eye_open_enough) and eye_separation >= 0.018) or
+            ((left_closed_enough and (right_eye_open_enough or right_brow_raised)) and eye_separation >= 0.018) or
             (l_ear <= abs_eye_closed and r_ear >= abs_eye_open)
         )
         raw_right_wink = (
-            ((right_closed_enough and left_eye_open_enough) and eye_separation >= 0.018) or
+            ((right_closed_enough and (left_eye_open_enough or left_brow_raised)) and eye_separation >= 0.018) or
             (r_ear <= abs_eye_closed and l_ear >= abs_eye_open)
         )
         raw_both_closed = (
@@ -374,7 +835,7 @@ class MouseController:
 
         MouseController._gesture_debug_counter += 1
         if MouseController._gesture_debug_counter % 30 == 0:
-            print(f"[GESTURE] lEAR={l_ear:.3f} rEAR={r_ear:.3f} dL={left_delta:.3f} dR={right_delta:.3f} ratioL={left_ratio:.3f} ratioR={right_ratio:.3f}")
+            print(f"[GESTURE] lEAR={l_ear:.3f} rEAR={r_ear:.3f} lBrow={l_brow_eye:.3f} rBrow={r_brow_eye:.3f} dL={left_delta:.3f} dR={right_delta:.3f} ratioL={left_ratio:.3f} ratioR={right_ratio:.3f}")
             print(f"[GESTURE] mouth_ratio={current_m_ratio:.3f} delta={mouth_delta:.3f} jaw={mar:.3f}")
 
         active_gestures = []
@@ -419,18 +880,13 @@ class MouseController:
 
         # --- KEYBOARD INPUT: HAND-SWAP WINDOW SWITCH ---
         if getattr(settings, 'HAND_SWAP_WINDOW_SWITCH', False):
-            current_label = self.get_hand_label(hand_results)
-            if current_label and self.last_hand_label:
-                if current_label != self.last_hand_label and now - self.last_hand_swap_time > 1.5:
-                    if current_label == 'Right':  # left -> right
-                        pyautogui.hotkey('alt', 'tab')
-                        state_msgs.append("WINDOW SWITCH →")
-                    else:  # right -> left
-                        pyautogui.hotkey('alt', 'shift', 'tab')
-                        state_msgs.append("WINDOW SWITCH ←")
-                    self.last_hand_swap_time = now
-            if current_label:
-                self.last_hand_label = current_label
+            hand_swap_event = self.detect_hand_swap_event(face, hand_results, now)
+            if hand_swap_event == "WINDOW_NEXT":
+                pyautogui.hotkey('alt', 'tab')
+                state_msgs.append("WINDOW_NEXT")
+            elif hand_swap_event == "WINDOW_PREV":
+                pyautogui.hotkey('alt', 'shift', 'tab')
+                state_msgs.append("WINDOW_PREV")
 
         # Skip mouse gesture actions if mouse control is disabled
         if not getattr(settings, 'MOUSE_CONTROL_ENABLED', True):

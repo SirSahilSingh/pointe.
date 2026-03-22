@@ -14,8 +14,14 @@ Designed to be zero-cost when disabled (all methods short-circuit).
 import tkinter as tk
 import math
 import time
-import win32gui
-import win32con
+
+_HAS_WIN32 = False
+try:
+    import win32gui
+    import win32con
+    _HAS_WIN32 = True
+except ImportError:
+    pass
 
 
 class TelemetryOverlay:

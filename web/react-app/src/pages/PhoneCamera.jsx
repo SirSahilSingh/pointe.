@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { callEel } from '../hooks/useEel'
 import StatusBadge from '../components/StatusBadge'
 
-export default function PhoneCamera({ onClose }) {
+export default function PhoneCamera({ onClose, setConfig }) {
     const [running, setRunning] = useState(false)
     const [qrCode, setQrCode] = useState(null)
     const [url, setUrl] = useState('')
@@ -49,6 +49,7 @@ export default function PhoneCamera({ onClose }) {
             setUrl(result.url)
             setStatus(result.status || 'waiting')
             startPolling()
+            if (setConfig) setConfig(prev => ({ ...prev, camera_source: 'phone' }))
         } else {
             alert('Failed to start phone camera: ' + (result?.error || 'Unknown error'))
         }
@@ -61,12 +62,13 @@ export default function PhoneCamera({ onClose }) {
         setQrCode(null)
         setUrl('')
         setStatus('offline')
+        if (setConfig) setConfig(prev => ({ ...prev, camera_source: 0 }))
     }
 
     const steps = [
         { num: 1, title: 'Same Network', desc: 'Connect your phone and PC to the same WiFi network' },
         { num: 2, title: 'Scan QR', desc: "Open your phone's camera and scan the QR code" },
-        { num: 3, title: 'Accept Certificate', desc: 'Tap "Advanced → Proceed" on the security warning' },
+        { num: 3, title: 'Security Prompt', desc: 'Your browser may show a security warning — this is normal for local connections. Tap "Advanced" → "Proceed" to continue.' },
         { num: 4, title: 'Allow Camera', desc: 'Grant camera permission when prompted' },
     ]
 

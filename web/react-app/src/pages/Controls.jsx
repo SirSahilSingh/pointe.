@@ -28,9 +28,9 @@ const SHORTCUT_GROUPS = [
             {
                 action: 'recalibrate',
                 label: 'Recalibrate Face',
-                shortcut: 'Ctrl + R',
+                shortcut: 'Ctrl + C',
                 description: 'Reset face tracking calibration to current position',
-                keys: ['Control', 'r'],
+                keys: ['Control', 'c'],
             },
             {
                 action: 'quit_engine',
@@ -38,53 +38,6 @@ const SHORTCUT_GROUPS = [
                 shortcut: 'Ctrl + Q',
                 description: 'Gracefully stop the tracking engine',
                 keys: ['Control', 'q'],
-            },
-        ],
-    },
-    {
-        id: 'sensitivity',
-        label: 'Sensitivity Controls',
-        items: [
-            {
-                action: 'increase_sens',
-                label: 'Increase Sensitivity',
-                shortcut: 'Ctrl + ↑',
-                description: 'Bump sensitivity up by 0.5',
-                keys: ['Control', 'ArrowUp'],
-            },
-            {
-                action: 'decrease_sens',
-                label: 'Decrease Sensitivity',
-                shortcut: 'Ctrl + ↓',
-                description: 'Reduce sensitivity by 0.5',
-                keys: ['Control', 'ArrowDown'],
-            },
-        ],
-    },
-    {
-        id: 'utility',
-        label: 'Media & Utility',
-        items: [
-            {
-                action: 'toggle_scroll',
-                label: 'Toggle Scroll Mode',
-                shortcut: 'Ctrl + S',
-                description: 'Switch scroll gesture on or off',
-                keys: ['Control', 's'],
-            },
-            {
-                action: 'toggle_face_lock',
-                label: 'Toggle Face Lock',
-                shortcut: 'Ctrl + L',
-                description: 'Enable or disable face lock security',
-                keys: ['Control', 'l'],
-            },
-            {
-                action: 'toggle_media_pause',
-                label: 'Toggle Media Auto-Pause',
-                shortcut: 'Ctrl + P',
-                description: 'Enable or disable media auto-pause on look away',
-                keys: ['Control', 'p'],
             },
         ],
     },

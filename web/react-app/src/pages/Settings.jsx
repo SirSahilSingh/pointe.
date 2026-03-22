@@ -235,7 +235,25 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
     const [activePreset, setActivePreset] = useState('productivity')
     const [customValues, setCustomValues] = useState(DEFAULT_CUSTOM)
     const [presetOpen, setPresetOpen] = useState(false)
-    const [gestureCalibration, setGestureCalibration] = useState(DEFAULT_GESTURE_CALIBRATION)
+    const [gestureCalibration, setGestureCalibration] = useState(() => {
+        // Initialize from backend config (hold_duration -> holdDuration for UI)
+        const backendCal = config.gesture_calibration || {}
+        if (Object.keys(backendCal).length > 0) {
+            const uiCal = {}
+            for (const [gesture, vals] of Object.entries(backendCal)) {
+                uiCal[gesture] = {
+                    threshold: vals.threshold ?? DEFAULT_GESTURE_CALIBRATION[gesture]?.threshold ?? 0.6,
+                    holdDuration: vals.hold_duration ?? vals.holdDuration ?? DEFAULT_GESTURE_CALIBRATION[gesture]?.holdDuration ?? 0.2,
+                }
+            }
+            // Fill in any missing gestures from defaults
+            for (const [gesture, defaults] of Object.entries(DEFAULT_GESTURE_CALIBRATION)) {
+                if (!uiCal[gesture]) uiCal[gesture] = { ...defaults }
+            }
+            return uiCal
+        }
+        return DEFAULT_GESTURE_CALIBRATION
+    })
     const [calibrationOpen, setCalibrationOpen] = useState(false)
     const modalRef = useRef(null)
 
@@ -677,13 +695,35 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                                                     <SliderRow
                                                         label="Threshold"
                                                         value={cal.threshold}
-                                                        onChange={v => setGestureCalibration(prev => ({ ...prev, [gesture]: { ...prev[gesture], threshold: v } }))}
+                                                        onChange={v => {
+                                                            setGestureCalibration(prev => {
+                                                                const updated = { ...prev, [gesture]: { ...prev[gesture], threshold: v } }
+                                                                // Sync back to parent config with holdDuration -> hold_duration
+                                                                const backendCal = {}
+                                                                for (const [g, vals] of Object.entries(updated)) {
+                                                                    backendCal[g] = { threshold: vals.threshold, hold_duration: vals.holdDuration }
+                                                                }
+                                                                setConfig(p => ({ ...p, gesture_calibration: backendCal }))
+                                                                return updated
+                                                            })
+                                                        }}
                                                         min={0.3} max={0.9} step={0.05}
                                                     />
                                                     <SliderRow
                                                         label="Hold Duration"
                                                         value={cal.holdDuration}
-                                                        onChange={v => setGestureCalibration(prev => ({ ...prev, [gesture]: { ...prev[gesture], holdDuration: v } }))}
+                                                        onChange={v => {
+                                                            setGestureCalibration(prev => {
+                                                                const updated = { ...prev, [gesture]: { ...prev[gesture], holdDuration: v } }
+                                                                // Sync back to parent config with holdDuration -> hold_duration
+                                                                const backendCal = {}
+                                                                for (const [g, vals] of Object.entries(updated)) {
+                                                                    backendCal[g] = { threshold: vals.threshold, hold_duration: vals.holdDuration }
+                                                                }
+                                                                setConfig(p => ({ ...p, gesture_calibration: backendCal }))
+                                                                return updated
+                                                            })
+                                                        }}
                                                         min={0.05} max={1.0} step={0.05}
                                                         suffix="s"
                                                     />

@@ -7,6 +7,7 @@ import platform
 import subprocess
 import time
 import signal
+import getpass
 import settings
 import numpy as np
 import mediapipe as mp
@@ -73,11 +74,27 @@ def get_current_settings():
 @eel.expose
 def get_system_info():
     """Returns system metadata for the UI footer and dashboard."""
+    version = 'v1.0.0'
+    try:
+        version_path = os.path.join(PROJECT_DIR, 'VERSION')
+        with open(version_path, 'r') as f:
+            version = 'v' + f.read().strip()
+    except (OSError, IOError):
+        pass
     return {
         'resolution': f"{settings.FRAME_WIDTH} × {settings.FRAME_HEIGHT}",
         'platform': platform.system(),
-        'version': 'v1.0.0'
+        'version': version
     }
+
+
+@eel.expose
+def get_user_name():
+    """Returns the current OS username for the dashboard greeting."""
+    try:
+        return getpass.getuser()
+    except Exception:
+        return 'User'
 
 
 @eel.expose
@@ -96,73 +113,49 @@ def save_and_launch(config):
         engine_process = None
         time.sleep(0.5)  # Let OS release the port
 
-    # Determine camera source literal for settings.py
+    # Determine camera source — use config as source of truth,
+    # override to 'phone' only if actively connected
+    selected_source = config.get('camera_source', getattr(settings, 'CAMERA_SOURCE', settings.CAMERA_INDEX))
+    cam_source = selected_source
     if phone_cam_active:
-        cam_source_literal = "'phone'"
-    else:
-        cam_source_literal = settings.CAMERA_INDEX
+        cam_source = 'phone'
 
-    # Gesture calibration from config
-    gcal = config.get('gesture_calibration', {})
-    gcal_str = '{\n'
-    for gname, gvals in gcal.items():
-        gcal_str += f'    "{gname}": {{"threshold": {gvals.get("threshold", 0.6)}, "hold_duration": {gvals.get("hold_duration", 0.2)}}},\n'
-    gcal_str += '}'
+    # Build config dict for JSON persistence
+    persist = {
+        'CAMERA_INDEX': settings.CAMERA_INDEX,
+        'CAMERA_SOURCE': cam_source,
+        'FRAME_WIDTH': settings.FRAME_WIDTH,
+        'FRAME_HEIGHT': settings.FRAME_HEIGHT,
+        'SENSITIVITY_X': float(config.get('sens_x', 2.0)),
+        'SENSITIVITY_Y': float(config.get('sens_y', 2.0)),
+        'SMOOTHING': float(config.get('smoothing', 0.03)),
+        'ACCELERATION': float(config.get('acceleration', 1.6)),
+        'DEADZONE': float(config.get('deadzone', 0.03)),
+        'GESTURE_MAPPINGS': {
+            'left_click': config.get('lclick', 'left_wink'),
+            'right_click': config.get('rclick', 'right_wink'),
+            'double_click': config.get('dclick', 'pucker'),
+            'media_play_pause': config.get('media_pp', 'open_palm'),
+            'drag_drop': config.get('drag', 'jaw_drop'),
+            'scroll': config.get('scroll', 'both_closed'),
+        },
+        'GESTURE_CALIBRATION': config.get('gesture_calibration', {}),
+        'MEDIA_AUTO_PAUSE': config.get('media_auto_pause', True),
+        'SCROLL_ENABLED': config.get('scroll_enabled', True),
+        'MOUSE_CONTROL_ENABLED': config.get('mouse_control_enabled', True),
+        'PINCH_COPY_PASTE': config.get('pinch_copy_paste', True),
+        'HAND_SWAP_WINDOW_SWITCH': config.get('hand_swap_window', True),
+        'FACE_LOCK_ENABLED': config.get('face_lock_enabled', False),
+        'FACE_LOCK_TIMEOUT': config.get('face_lock_timeout', 30),
+        'FACE_LOCK_ON_UNKNOWN': config.get('face_lock_on_unknown', False),
+    }
 
-    new_settings = f"""# --- CAMERA SETTINGS ---
-CAMERA_INDEX = {settings.CAMERA_INDEX}             
-CAMERA_SOURCE = {cam_source_literal}
-FRAME_WIDTH = {settings.FRAME_WIDTH}            
-FRAME_HEIGHT = {settings.FRAME_HEIGHT}
-
-# --- HEAD TRACKING SENSITIVITY ---
-SENSITIVITY_X = {float(config['sens_x']):.2f}         
-SENSITIVITY_Y = {float(config['sens_y']):.2f}          
-
-# --- MOVEMENT PHYSICS ---
-SMOOTHING = {float(config.get('smoothing', 0.03))}
-ACCELERATION = {float(config.get('acceleration', 1.6))}
-DEADZONE = {float(config.get('deadzone', 0.03))}
-
-# --- CUSTOM GESTURE MAPPINGS ---
-GESTURE_MAPPINGS = {{
-    "left_click": "{config['lclick']}",
-    "right_click": "{config['rclick']}",
-    "double_click": "{config['dclick']}",
-    "media_play_pause": "{config['media_pp']}",
-    "drag_drop": "{config['drag']}",
-    "scroll": "{config['scroll']}"
-}}
-
-# --- GESTURE CALIBRATION ---
-GESTURE_CALIBRATION = {gcal_str}
-
-# --- FEATURE TOGGLES ---
-MEDIA_AUTO_PAUSE = {config.get('media_auto_pause', True)}
-SCROLL_ENABLED = {config.get('scroll_enabled', True)}
-MOUSE_CONTROL_ENABLED = {config.get('mouse_control_enabled', True)}
-PINCH_COPY_PASTE = {config.get('pinch_copy_paste', True)}
-HAND_SWAP_WINDOW_SWITCH = {config.get('hand_swap_window', True)}
-
-# --- FACE LOCK ---
-FACE_LOCK_ENABLED = {config.get('face_lock_enabled', False)}
-FACE_LOCK_TIMEOUT = {config.get('face_lock_timeout', 30)}
-FACE_LOCK_ON_UNKNOWN = {config.get('face_lock_on_unknown', False)}
-
-# --- MOTION ENGINE (Velocity/Joystick Cursor Model) ---
-MOTION_ENGINE = {{
-    "raw_smooth": 0.08,
-    "dead_zone": 0.08,
-    "max_tilt": 0.35,
-    "max_speed": 900,
-    "damping": 0.15,
-    "one_euro_mincutoff": 1.5,
-    "one_euro_beta": 0.3,
-    "one_euro_dcutoff": 1.0,
-}}
-"""
-    settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.py")
-    with open(settings_path, "w") as f: f.write(new_settings)
+    # Save to JSON and reload into the settings module
+    try:
+        settings.save_config(persist)
+        settings.load_config()
+    except Exception as e:
+        print(f"[SYSTEM] Warning: Failed to save config: {e}")
 
     # STOP the local OpenCV capture so the engine can use the camera
     # but DO NOT kill the stream_camera loop (is_running stays True)!
@@ -292,7 +285,11 @@ def get_registered_faces():
 @eel.expose
 def activate_shortcut(action):
     """Activates a keyboard shortcut from the UI."""
-    import keyboard
+    try:
+        import keyboard
+    except ImportError:
+        print("[SYSTEM] keyboard module not available on this platform.")
+        return False
     shortcut_map = {
         'toggle_mouse': 'ctrl+m',
         'recalibrate': 'ctrl+c',

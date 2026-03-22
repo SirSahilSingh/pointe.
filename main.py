@@ -4,7 +4,13 @@ import sys
 import os
 import time
 import threading
-import keyboard
+
+try:
+    import keyboard
+    _HAS_KEYBOARD = True
+except ImportError:
+    _HAS_KEYBOARD = False
+
 import mediapipe as mp
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -45,12 +51,13 @@ def set_debug_toggle(): global trigger_debug_toggle; trigger_debug_toggle = True
 def set_noise_measure(): global trigger_noise_measure; trigger_noise_measure = True
 
 
-# Assign OS-Level Shortcuts
-keyboard.add_hotkey('ctrl+c', set_recalibrate)
-keyboard.add_hotkey('ctrl+m', set_toggle)
-keyboard.add_hotkey('ctrl+q', set_quit)
-keyboard.add_hotkey('ctrl+d', set_debug_toggle)
-keyboard.add_hotkey('ctrl+n', set_noise_measure)
+# Assign OS-Level Shortcuts (Windows only — requires `keyboard` package)
+if _HAS_KEYBOARD:
+    keyboard.add_hotkey('ctrl+c', set_recalibrate)
+    keyboard.add_hotkey('ctrl+m', set_toggle)
+    keyboard.add_hotkey('ctrl+q', set_quit)
+    keyboard.add_hotkey('ctrl+d', set_debug_toggle)
+    keyboard.add_hotkey('ctrl+n', set_noise_measure)
 
 
 # ─── Shared state between MediaPipe thread and main loop ───
@@ -81,7 +88,7 @@ def _mediapipe_worker(cap, detector, hand_detector, state, running_flag):
     last_frame_id = -1
     first_logged = False
     frame_count = 0
-    _HANDS_EVERY_N = 3           # process hands every Nth face frame
+    _HANDS_EVERY_N = 2           # process hands frequently enough for fast window-swap sweeps
     _TARGET_MP_FPS = 35          # max processing rate
     _MIN_MP_PERIOD = 1.0 / _TARGET_MP_FPS
     _cached_hand_results = None  # reuse between hand-processing frames
@@ -115,12 +122,11 @@ def _mediapipe_worker(cap, detector, hand_detector, state, running_flag):
 
         t0 = time.perf_counter()
         results = detector.face_mesh.process(rgb_img)
+        mp_ms = (time.perf_counter() - t0) * 1000
 
-        # Process hands only every Nth frame to reduce CPU
+        # Process hands separately — outside face mesh timing
         if frame_count % _HANDS_EVERY_N == 0:
             _cached_hand_results = hand_detector.process(rgb_img)
-
-        mp_ms = (time.perf_counter() - t0) * 1000
 
         # Extract face data and publish atomically
         if results.multi_face_landmarks:
@@ -263,8 +269,8 @@ def main():
     hand_detector = mp_hands.Hands(
         static_image_mode=False,
         max_num_hands=1,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5
+        min_detection_confidence=0.35,
+        min_tracking_confidence=0.4
     )
 
     calibrated_fw_norm = 0.2

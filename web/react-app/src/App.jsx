@@ -33,6 +33,8 @@ export default function App() {
     smoothing: 0.03,
     acceleration: 1.6,
     deadzone: 0.03,
+    gesture_calibration: {},
+    camera_source: 0,
   })
 
   useEffect(() => {
@@ -107,7 +109,7 @@ export default function App() {
 
       <AnimatePresence>
         {phoneCameraOpen && (
-          <PhoneCamera onClose={() => setPhoneCameraOpen(false)} />
+          <PhoneCamera onClose={() => setPhoneCameraOpen(false)} setConfig={setConfig} />
         )}
       </AnimatePresence>
     </div>
