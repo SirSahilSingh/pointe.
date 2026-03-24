@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { callEel, exposeToEel } from './hooks/useEel'
 import Sidebar from './components/layout/Sidebar'
@@ -8,11 +8,15 @@ import Controls from './pages/Controls'
 import PhoneCamera from './pages/PhoneCamera'
 import Search from './pages/Search'
 
+const PHONE_CONNECTED_STATUSES = new Set(['connected', 'streaming', 'handoff', 'engine'])
+
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [phoneCameraOpen, setPhoneCameraOpen] = useState(false)
   const [engineRunning, setEngineRunning] = useState(false)
+  const [phoneToast, setPhoneToast] = useState(null)
+  const previousPhoneStatus = useRef('idle')
   const [config, setConfig] = useState({
     sens_x: 2.50,
     sens_y: 2.50,
@@ -43,7 +47,50 @@ export default function App() {
     })
     exposeToEel('engine_launched', () => setEngineRunning(true))
     exposeToEel('engine_killed', () => setEngineRunning(false))
+    exposeToEel('phone_camera_disconnected', () => {
+      setConfig(prev => ({ ...prev, camera_source: 0 }))
+      setPhoneToast({ type: 'warning', message: 'Phone camera disconnected. Switched back to webcam preview.' })
+    })
   }, [])
+
+  useEffect(() => {
+    if (!phoneToast) return
+    const timeout = setTimeout(() => setPhoneToast(null), 3500)
+    return () => clearTimeout(timeout)
+  }, [phoneToast])
+
+  useEffect(() => {
+    if (!phoneCameraOpen && config.camera_source !== 'phone') {
+      previousPhoneStatus.current = 'idle'
+      return undefined
+    }
+
+    const poll = setInterval(async () => {
+      const result = await callEel('get_phone_camera_status')
+      if (!result) return
+
+      const status = result.status || 'idle'
+      const isConnected = PHONE_CONNECTED_STATUSES.has(status)
+      const wasConnected = PHONE_CONNECTED_STATUSES.has(previousPhoneStatus.current)
+
+      if (phoneCameraOpen && isConnected) {
+        setPhoneCameraOpen(false)
+        setConfig(prev => ({ ...prev, camera_source: 'phone' }))
+        setPhoneToast({ type: 'success', message: 'Phone camera connected and live.' })
+      }
+
+      if (wasConnected && !isConnected) {
+        await callEel('stop_phone_camera')
+        setConfig(prev => ({ ...prev, camera_source: 0 }))
+        setPhoneCameraOpen(false)
+        setPhoneToast({ type: 'warning', message: 'Phone camera disconnected. Switched back to webcam preview.' })
+      }
+
+      previousPhoneStatus.current = status
+    }, 1500)
+
+    return () => clearInterval(poll)
+  }, [phoneCameraOpen, config.camera_source])
 
   const handleLaunch = async () => {
     await callEel('save_and_launch', config)
@@ -110,6 +157,34 @@ export default function App() {
       <AnimatePresence>
         {phoneCameraOpen && (
           <PhoneCamera onClose={() => setPhoneCameraOpen(false)} setConfig={setConfig} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {phoneToast && (
+          <div
+            style={{
+              position: 'fixed',
+              right: '24px',
+              bottom: '24px',
+              zIndex: 10010,
+              minWidth: '280px',
+              maxWidth: '360px',
+              padding: '14px 16px',
+              borderRadius: '14px',
+              background: phoneToast.type === 'success' ? 'rgba(20, 83, 45, 0.94)' : 'rgba(127, 29, 29, 0.94)',
+              border: phoneToast.type === 'success' ? '1px solid rgba(74, 222, 128, 0.28)' : '1px solid rgba(248, 113, 113, 0.26)',
+              color: '#f8fafc',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.35)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+              fontFamily: 'var(--font-sans)',
+              fontSize: '13px',
+              lineHeight: 1.45,
+            }}
+          >
+            {phoneToast.message}
+          </div>
         )}
       </AnimatePresence>
     </div>

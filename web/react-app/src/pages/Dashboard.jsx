@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+﻿import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { callEel } from '../hooks/useEel'
 import LiveFeed from '../components/LiveFeed'
@@ -11,7 +11,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { Notification01Icon } from '@hugeicons/core-free-icons'
 import { PRESETS } from '../data/presets'
 
-/* ─── Header Icons ─── */
+/* â”€â”€â”€ Header Icons â”€â”€â”€ */
 const BellIcon = () => (
     <HugeiconsIcon icon={Notification01Icon} size={20} color="currentColor" strokeWidth={1.5} />
 )
@@ -26,7 +26,7 @@ const ChevronDown = () => (
     </svg>
 )
 
-/* ─── Dropdown item ─── */
+/* â”€â”€â”€ Dropdown item â”€â”€â”€ */
 function DropdownItem({ children, onClick, danger = false }) {
     return (
         <button onClick={onClick}
@@ -44,17 +44,17 @@ function DropdownItem({ children, onClick, danger = false }) {
     )
 }
 
-/* ─── Gesture prettifier ─── */
+/* â”€â”€â”€ Gesture prettifier â”€â”€â”€ */
 const GESTURE_LABELS = {
     left_wink: 'Left Wink', right_wink: 'Right Wink', pucker: 'Pucker',
     jaw_drop: 'Jaw Drop', both_closed: 'Both Closed', open_palm: 'Open Palm',
 }
 const prettyGesture = (g) => GESTURE_LABELS[g] || g
 
-/* ─── Tips ─── */
+/* â”€â”€â”€ Tips â”€â”€â”€ */
 const TIPS = [
     '"Keep your face centered in the frame for best tracking accuracy"',
-    '"Avoid strong backlighting — face the light source for clearer detection"',
+    '"Avoid strong backlighting â€” face the light source for clearer detection"',
     '"Blink slowly and deliberately for more reliable gesture detection"',
     '"Press Ctrl + M to quickly toggle head-tracking on or off"',
     '"Press Ctrl + R to recalibrate face tracking to your current position"',
@@ -62,9 +62,9 @@ const TIPS = [
     '"Switch to a lower sensitivity preset in dim environments"',
 ]
 
-/* ═══════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    macOS LIQUID GLASS CARD
-   ═══════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const macGlassStyle = {
     background: 'rgba(50, 50, 56, 0.25)',
     backdropFilter: 'blur(40px) saturate(1.8)',
@@ -90,9 +90,9 @@ function GlassCard({ children, style, className = '' }) {
     )
 }
 
-/* ═══════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    TIPS CAROUSEL
-   ═══════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 function TipsCarousel() {
     const [idx, setIdx] = useState(0)
     useEffect(() => {
@@ -128,20 +128,29 @@ function TipsCarousel() {
     )
 }
 
-/* ═══════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    DASHBOARD
-   ═══════════════════════════════════════ */
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 export default function Dashboard({ config: settings, setConfig, engineRunning, onLaunch, onKill }) {
     const [userName, setUserName] = useState('Sahil')
     const [accountOpen, setAccountOpen] = useState(false)
     const accountRef = useRef(null)
 
     // Real-time telemetry from LiveFeed
-    const [telemetry, setTelemetry] = useState({ fps: 0, latency: 0, faceDetected: false })
+    const [telemetry, setTelemetry] = useState({
+        fps: 0,
+        latency: 0,
+        faceDetected: false,
+        cameraMp: settings.camera_meta?.mp || 0,
+        cameraSource: settings.camera_meta?.source || 'webcam',
+        cameraResolution: settings.camera_meta?.width && settings.camera_meta?.height
+            ? `${settings.camera_meta.width}x${settings.camera_meta.height}`
+            : null,
+    })
     useEffect(() => {
         const poll = setInterval(() => {
             const t = window._dashTelemetry
-            if (t) setTelemetry({ ...t })
+            if (t) setTelemetry(prev => ({ ...prev, ...t }))
         }, 300)
         return () => clearInterval(poll)
     }, [])
@@ -159,6 +168,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
 
     const borderColor = engineRunning ? '#eab308' : '#72d678'
     const feedActive = telemetry.fps > 0
+    const cameraMpLabel = telemetry.cameraMp ? `${Number(telemetry.cameraMp).toFixed(1)} MP` : 'â€”'
 
     // Derive active preset name from config sensitivity values
     const presetName = useMemo(() => {
@@ -190,7 +200,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
             overflow: 'hidden',
             padding: '2px 0 0',
         }}>
-            {/* ─── HEADER ROW ─── */}
+            {/* â”€â”€â”€ HEADER ROW â”€â”€â”€ */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
                 <h1 style={{
                     fontFamily: "'Poppins', var(--font-display)",
@@ -256,7 +266,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
                 </div>
             </div>
 
-            {/* ─── WELCOME TEXT (Omnes, light, gradient + type animation) ─── */}
+            {/* â”€â”€â”€ WELCOME TEXT (Omnes, light, gradient + type animation) â”€â”€â”€ */}
             <GradientText
                 colors={['#ff1d00', '#ff406f', '#ff6e57', '#72d678']}
                 animationSpeed={6}
@@ -275,7 +285,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
                 </h2>
             </GradientText>
 
-            {/* ═══ MAIN CONTENT — 2-column flex layout ═══ */}
+            {/* â•â•â• MAIN CONTENT â€” 2-column flex layout â•â•â• */}
             <div style={{
                 display: 'flex',
                 gap: '14px',
@@ -283,7 +293,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
                 minHeight: 0,
                 overflow: 'hidden',
             }}>
-                {/* ── LEFT COLUMN: Camera + KPI strip ── */}
+                {/* â”€â”€ LEFT COLUMN: Camera + KPI strip â”€â”€ */}
                 <div style={{
                     flex: '1 1 65%',
                     display: 'flex',
@@ -303,17 +313,17 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
                         </div>
                     </GlassCard>
 
-                    {/* KPI Strip — compact, auto height */}
+                    {/* KPI Strip â€” compact, auto height */}
                     <GlassCard style={{
                         flexShrink: 0,
                         padding: '16px 20px',
                     }}>
                         <div style={{ display: 'flex' }}>
                             {[
-                                { label: 'Preset', value: feedActive || engineRunning ? presetName : '—' },
-                                { label: 'Latency', value: feedActive ? `${telemetry.latency}ms` : '—' },
-                                { label: 'Camera', value: feedActive || engineRunning ? '0.9 MP' : '—' },
-                                { label: 'FPS', value: feedActive ? telemetry.fps : '—' },
+                                { label: 'Preset', value: feedActive || engineRunning ? presetName : 'â€”' },
+                                { label: 'Latency', value: feedActive ? `${telemetry.latency}ms` : 'â€”' },
+                                { label: 'Camera', value: cameraMpLabel },
+                                { label: 'FPS', value: feedActive ? telemetry.fps : 'â€”' },
                             ].map((kpi, i, arr) => (
                                 <div key={kpi.label} style={{
                                     flex: 1,
@@ -338,7 +348,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
                     </GlassCard>
                 </div>
 
-                {/* ── RIGHT COLUMN: Tips + Quick Settings + Mappings ── */}
+                {/* â”€â”€ RIGHT COLUMN: Tips + Quick Settings + Mappings â”€â”€ */}
                 <div style={{
                     flex: '0 0 32%',
                     display: 'flex',
@@ -453,7 +463,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
     )
 }
 
-/* ─── Header button helpers ─── */
+/* â”€â”€â”€ Header button helpers â”€â”€â”€ */
 const hdrBtn = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     width: '36px', height: '36px', borderRadius: '10px',
@@ -465,3 +475,4 @@ const hoverB = (e, on) => {
     e.currentTarget.style.background = on ? 'rgba(255,255,255,0.06)' : 'transparent'
     e.currentTarget.style.color = on ? 'var(--color-text-primary)' : 'var(--color-text-secondary)'
 }
+

@@ -5,6 +5,7 @@ pyautogui>=0.9.54
 screeninfo>=0.8.1
 qrcode[pil]>=7.0
 websockets>=12.0
+aiortc>=1.9.0
 Pillow>=10.0
 cryptography>=42.0
 eel>=0.16.0

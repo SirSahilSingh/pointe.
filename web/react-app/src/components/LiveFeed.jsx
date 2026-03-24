@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { onImageFrame, onTelemetry, onLightWarning } from '../hooks/useEel'
+import { onImageFrame, onTelemetry, onLightWarning, onCameraMeta } from '../hooks/useEel'
 import { JaliPattern } from './IndianOrnaments'
 
 export default function LiveFeed() {
@@ -7,7 +7,7 @@ export default function LiveFeed() {
     const [faceDetected, setFaceDetected] = useState(false)
     const [fps, setFps] = useState(0)
     // Non-visual stats kept in refs to prevent 60 state updates per second
-    const statsRef = useRef({ fps: 0, peakFps: 0, latency: 0, totalFrames: 0, confidence: 0, uptime: 0, faceDetected: false })
+    const statsRef = useRef({ fps: 0, peakFps: 0, latency: 0, totalFrames: 0, confidence: 0, uptime: 0, faceDetected: false, cameraMp: 0, cameraSource: 'webcam', cameraResolution: null })
     const frameCount = useRef(0)
     const lastFpsTime = useRef(Date.now())
     const startTime = useRef(Date.now())
@@ -48,6 +48,14 @@ export default function LiveFeed() {
             setFaceDetected(detected)
             statsRef.current.faceDetected = detected
             statsRef.current.confidence = detected ? 92 + Math.floor(Math.random() * 7) : 0
+            updateTelemetry()
+        })
+
+        onCameraMeta((meta) => {
+            if (!meta) return
+            statsRef.current.cameraMp = meta.mp || 0
+            statsRef.current.cameraSource = meta.source || 'webcam'
+            statsRef.current.cameraResolution = meta.width && meta.height ? `${meta.width}x${meta.height}` : null
             updateTelemetry()
         })
 

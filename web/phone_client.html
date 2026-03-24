@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>pointe — Phone Camera</title>
+    <title>pointe - Phone Camera</title>
     <style>
         * {
             margin: 0;
@@ -13,7 +12,7 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: #0a0a0a;
             color: #f0ece4;
             height: 100vh;
@@ -36,10 +35,20 @@
         }
 
         .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
             font-size: 24px;
             font-weight: 700;
             letter-spacing: 2px;
-            color: #c8b89a;
+            color: #f0ece4;
+        }
+
+        .brand img {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
         }
 
         .status {
@@ -68,21 +77,14 @@
         }
 
         @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: 0.3;
-            }
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
 
         .video-wrapper {
             position: relative;
             width: 100%;
-            aspect-ratio: 3/4;
+            aspect-ratio: 9 / 16;
             background: #111;
             border-radius: 12px;
             overflow: hidden;
@@ -96,32 +98,25 @@
             transform: scaleX(-1);
         }
 
-        canvas {
-            display: none;
-        }
-
-        .overlay-badge {
+        .overlay-badge,
+        .meta-badge {
             position: absolute;
             top: 12px;
-            left: 12px;
             padding: 4px 10px;
             background: rgba(0, 0, 0, 0.7);
             border-radius: 6px;
             font-size: 10px;
             font-weight: 600;
             letter-spacing: 1px;
+        }
+
+        .overlay-badge {
+            left: 12px;
             color: #4ade80;
         }
 
-        .fps-badge {
-            position: absolute;
-            top: 12px;
+        .meta-badge {
             right: 12px;
-            padding: 4px 10px;
-            background: rgba(0, 0, 0, 0.7);
-            border-radius: 6px;
-            font-size: 10px;
-            font-weight: 600;
             color: #c8b89a;
         }
 
@@ -138,12 +133,35 @@
             text-align: center;
             display: none;
         }
+
+        .controls {
+            display: flex;
+            width: 100%;
+            justify-content: center;
+        }
+
+        .flip-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.04);
+            color: #f0ece4;
+            border-radius: 999px;
+            padding: 10px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+        }
     </style>
 </head>
-
 <body>
     <div class="container">
-        <div class="brand">pointe</div>
+        <div class="brand">
+            <img src="/logo.png" alt="pointe" />
+            <span>pointe</span>
+        </div>
 
         <div class="status">
             <span class="status-dot" id="status-dot"></span>
@@ -152,13 +170,15 @@
 
         <div class="video-wrapper">
             <video id="video" autoplay playsinline muted></video>
-            <span class="overlay-badge" id="stream-badge">CONNECTING</span>
-            <span class="fps-badge" id="fps-badge">0 fps</span>
+            <span class="overlay-badge" id="stream-badge">PAIRING</span>
+            <span class="meta-badge" id="meta-badge">WEBRTC</span>
         </div>
 
-        <canvas id="canvas"></canvas>
-
         <div class="error-msg" id="error-msg"></div>
+
+        <div class="controls">
+            <button class="flip-btn" id="flip-btn" type="button">Flip Camera</button>
+        </div>
 
         <div class="info">
             Keep this page open to stream your camera.<br>
@@ -167,191 +187,234 @@
     </div>
 
     <script>
-        const WS_URL = "__WS_URL__";
-        const TARGET_FPS = 25;
-        const JPEG_QUALITY = 0.7;
+        const SIGNAL_URL = "__SIGNAL_URL__";
+        const ICE_SERVERS = __ICE_SERVERS__;
 
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const statusDot = document.getElementById('status-dot');
-        const statusText = document.getElementById('status-text');
-        const streamBadge = document.getElementById('stream-badge');
-        const fpsBadge = document.getElementById('fps-badge');
-        const errorMsg = document.getElementById('error-msg');
+        const video = document.getElementById("video");
+        const statusDot = document.getElementById("status-dot");
+        const statusText = document.getElementById("status-text");
+        const streamBadge = document.getElementById("stream-badge");
+        const metaBadge = document.getElementById("meta-badge");
+        const errorMsg = document.getElementById("error-msg");
+        const flipBtn = document.getElementById("flip-btn");
 
         let ws = null;
-        let streamInterval = null;
-        let framesSent = 0;
+        let pc = null;
+        let localStream = null;
         let reconnectDelay = 1000;
+        let wakeLock = null;
+        let signalOpenedOnce = false;
+        let currentFacingMode = "user";
 
-        // ── Camera ──────────────────────────────────
-
-        async function startCamera() {
+        async function startCamera(facingMode = currentFacingMode) {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
+                if (localStream) {
+                    localStream.getTracks().forEach((track) => track.stop());
+                }
+                localStream = await navigator.mediaDevices.getUserMedia({
                     video: {
-                        facingMode: 'user',
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
+                        facingMode: { ideal: facingMode },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
                     },
                     audio: false
                 });
-                video.srcObject = stream;
+                currentFacingMode = facingMode;
+                video.srcObject = localStream;
+                video.style.transform = currentFacingMode === "user" ? "scaleX(-1)" : "none";
                 await video.play();
-
-                // Set canvas to actual video dimensions
-                video.addEventListener('loadedmetadata', () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                });
-
-                // Fallback dimensions
-                canvas.width = 640;
-                canvas.height = 480;
-
-                connectWS();
+                if (!pc) {
+                    connectSignal();
+                } else {
+                    await replaceVideoTrack();
+                }
             } catch (err) {
-                showError('Camera access denied. Please allow camera permission and reload.');
+                showError("Camera access denied. Please allow camera permission and reload.");
             }
         }
 
-        // ── WebSocket ───────────────────────────────
+        async function replaceVideoTrack() {
+            if (!pc || !localStream) {
+                return;
+            }
+            const [track] = localStream.getVideoTracks();
+            const sender = pc.getSenders().find((item) => item.track && item.track.kind === "video");
+            if (!track || !sender) {
+                return;
+            }
+            await sender.replaceTrack(track);
+        }
 
-        function connectWS() {
-            if (ws && ws.readyState === WebSocket.OPEN) return;
+        function connectSignal() {
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
 
             try {
-                ws = new WebSocket(WS_URL);
-                ws.binaryType = 'arraybuffer';
+                setStatus("waiting", "Opening secure link...");
+                streamBadge.innerText = "PAIRING";
+                ws = new WebSocket(SIGNAL_URL);
 
-                ws.onopen = () => {
+                ws.onopen = async () => {
+                    signalOpenedOnce = true;
                     reconnectDelay = 1000;
-                    setStatus('connected', 'Streaming to pointe');
-                    streamBadge.innerText = 'LIVE';
-                    startStreaming();
+                    setStatus("waiting", "Negotiating WebRTC...");
+                    await startPeerConnection();
+                };
+
+                ws.onmessage = async (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (!pc) {
+                            return;
+                        }
+
+                        if (data.type === "answer") {
+                            await pc.setRemoteDescription({
+                                type: "answer",
+                                sdp: data.sdp
+                            });
+                        } else if (data.type === "candidate") {
+                            await pc.addIceCandidate(data.candidate);
+                        }
+                    } catch (err) {
+                        console.error("Signal message failed:", err);
+                    }
                 };
 
                 ws.onclose = () => {
-                    setStatus('waiting', 'Disconnected — reconnecting...');
-                    streamBadge.innerText = 'RECONNECTING';
-                    stopStreaming();
-                    setTimeout(connectWS, reconnectDelay);
+                    if (!signalOpenedOnce) {
+                        showError("Couldn't open Pointe's secure pairing channel. Reload the QR page after trusting the secure link.");
+                        return;
+                    }
+                    setStatus("waiting", "Disconnected - reconnecting...");
+                    streamBadge.innerText = "RECONNECTING";
+                    closePeer();
+                    setTimeout(connectSignal, reconnectDelay);
                     reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
                 };
 
                 ws.onerror = () => {
-                    ws.close();
+                    if (ws) {
+                        ws.close();
+                    }
                 };
-            } catch (e) {
-                setTimeout(connectWS, reconnectDelay);
+            } catch (err) {
+                showError("Couldn't start secure pairing. Please reload the page and try again.");
+                setTimeout(connectSignal, reconnectDelay);
             }
         }
 
-        // ── Frame Streaming ─────────────────────────
+        async function startPeerConnection() {
+            closePeer();
 
-        function startStreaming() {
-            if (streamInterval) return;
-            const interval = 1000 / TARGET_FPS;
+            pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-            // Smart framing output: always 640×360 (16:9 landscape)
-            const OUT_W = 640;
-            const OUT_H = 360;
-            canvas.width = OUT_W;
-            canvas.height = OUT_H;
+            localStream.getTracks().forEach((track) => {
+                pc.addTrack(track, localStream);
+            });
 
-            streamInterval = setInterval(() => {
-                if (!ws || ws.readyState !== WebSocket.OPEN) return;
-                if (video.readyState < 2) return;
-
-                const vw = video.videoWidth;
-                const vh = video.videoHeight;
-                if (vw === 0 || vh === 0) return;
-
-                // Smart framing: if portrait (h > w), crop a landscape 16:9 region
-                // centered vertically in the upper portion (face area)
-                let sx = 0, sy = 0, sw = vw, sh = vh;
-
-                if (vh > vw) {
-                    // Portrait mode: crop to landscape
-                    sw = vw;                         // full width
-                    sh = Math.round(vw * (9 / 16));  // height for 16:9 from that width
-                    sx = 0;
-                    // Position crop in upper third (face is usually there)
-                    sy = Math.round(vh * 0.15);
-                    // Clamp so we don't go out of bounds
-                    if (sy + sh > vh) sy = Math.max(0, vh - sh);
-                } else {
-                    // Already landscape or square: use full frame
-                    // Keep 16:9 aspect from center
-                    const targetH = Math.round(vw * (9 / 16));
-                    if (targetH < vh) {
-                        sy = Math.round((vh - targetH) / 2);
-                        sh = targetH;
-                    }
+            pc.onicecandidate = ({ candidate }) => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    return;
                 }
+                ws.send(JSON.stringify({
+                    type: "candidate",
+                    candidate: candidate ? {
+                        candidate: candidate.candidate,
+                        sdpMid: candidate.sdpMid,
+                        sdpMLineIndex: candidate.sdpMLineIndex
+                    } : null
+                }));
+            };
 
-                ctx.drawImage(video, sx, sy, sw, sh, 0, 0, OUT_W, OUT_H);
+            pc.onconnectionstatechange = () => {
+                const state = pc.connectionState;
+                metaBadge.innerText = state.toUpperCase();
+                if (state === "connected") {
+                    setStatus("connected", "Streaming to Pointe");
+                    streamBadge.innerText = "LIVE";
+                } else if (state === "connecting") {
+                    setStatus("waiting", "Connecting media path...");
+                    streamBadge.innerText = "PAIRING";
+                } else if (state === "failed" || state === "disconnected") {
+                    setStatus("waiting", "Connection dropped - retrying...");
+                    streamBadge.innerText = "RECONNECTING";
+                }
+            };
 
-                canvas.toBlob((blob) => {
-                    if (blob && ws && ws.readyState === WebSocket.OPEN) {
-                        blob.arrayBuffer().then(buffer => {
-                            ws.send(buffer);
-                            framesSent++;
-                        });
-                    }
-                }, 'image/jpeg', JPEG_QUALITY);
-            }, interval);
-        }
+            const offer = await pc.createOffer({
+                offerToReceiveAudio: false,
+                offerToReceiveVideo: false
+            });
+            await pc.setLocalDescription(offer);
 
-        function stopStreaming() {
-            if (streamInterval) {
-                clearInterval(streamInterval);
-                streamInterval = null;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "offer",
+                    sdp: pc.localDescription.sdp
+                }));
             }
         }
 
-        // ── FPS counter ─────────────────────────────
-
-        setInterval(() => {
-            fpsBadge.innerText = framesSent + ' fps';
-            framesSent = 0;
-        }, 1000);
-
-        // ── Helpers ─────────────────────────────────
+        function closePeer() {
+            if (pc) {
+                try {
+                    pc.onicecandidate = null;
+                    pc.onconnectionstatechange = null;
+                    pc.close();
+                } catch (err) {
+                    // Ignore cleanup errors.
+                }
+                pc = null;
+            }
+        }
 
         function setStatus(type, text) {
-            statusDot.className = 'status-dot' + (type === 'connected' ? ' connected' : type === 'error' ? ' error' : '');
+            statusDot.className =
+                "status-dot" +
+                (type === "connected" ? " connected" : type === "error" ? " error" : "");
             statusText.innerText = text;
         }
 
-        function showError(msg) {
-            errorMsg.innerText = msg;
-            errorMsg.style.display = 'block';
-            setStatus('error', 'Error');
-            streamBadge.innerText = 'ERROR';
+        function showError(message) {
+            errorMsg.innerText = message;
+            errorMsg.style.display = "block";
+            setStatus("error", "Error");
+            streamBadge.innerText = "ERROR";
+            metaBadge.innerText = "FAILED";
         }
 
-        // ── Prevent sleep on mobile ─────────────────
-        let wakeLock = null;
+        flipBtn.addEventListener("click", async () => {
+            const nextFacingMode = currentFacingMode === "user" ? "environment" : "user";
+            await startCamera(nextFacingMode);
+        });
+
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
+                if ("wakeLock" in navigator) {
+                    wakeLock = await navigator.wakeLock.request("screen");
                 }
-            } catch (e) { }
+            } catch (err) {
+                // Ignore wake-lock failures on browsers that do not support it reliably.
+            }
         }
 
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
                 requestWakeLock();
             }
         });
 
-        // ── Init ────────────────────────────────────
+        window.addEventListener("beforeunload", () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "bye" }));
+            }
+            closePeer();
+        });
+
         requestWakeLock();
         startCamera();
     </script>
 </body>
-
 </html>

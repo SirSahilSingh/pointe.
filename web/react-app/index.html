@@ -14,6 +14,7 @@
     window._eelFrameCallback = null;
     window._eelTelemetryCallback = null;
     window._eelLightCallback = null;
+    window._eelCameraMetaCallback = null;
 
     eel.expose(updateImage);
     function updateImage(base64Img) {
@@ -28,6 +29,11 @@
     eel.expose(updateLightWarning);
     function updateLightWarning(isLow) {
       if (window._eelLightCallback) window._eelLightCallback(isLow);
+    }
+
+    eel.expose(updateCameraMeta);
+    function updateCameraMeta(meta) {
+      if (window._eelCameraMetaCallback) window._eelCameraMetaCallback(meta);
     }
   </script>
 </head>

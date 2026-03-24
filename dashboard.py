@@ -33,6 +33,92 @@ engine_process = None  # Store the spawned engine process
 face_lock_mgr = FaceLockManager()
 phone_cam_server = None  # PhoneCameraServer instance
 phone_cam_active = False  # True when phone camera is the active source
+engine_phone_source = False  # True while the launched engine expects phone input
+engine_phone_handoff_pending = False  # True while dashboard hands phone control to the engine
+preview_generation = 0  # Monotonic token so only the newest preview loop stays alive
+current_camera_meta = {'source': 'webcam', 'width': settings.FRAME_WIDTH, 'height': settings.FRAME_HEIGHT, 'mp': round((settings.FRAME_WIDTH * settings.FRAME_HEIGHT) / 1_000_000, 1)}
+
+
+def _restart_preview_stream():
+    """Restart the dashboard preview loop with the currently selected source."""
+    global cap, preview_generation
+    preview_generation += 1
+    if cap:
+        try:
+            cap.release()
+        except Exception:
+            pass
+    cap = None
+    eel.spawn(stream_camera)
+
+
+def _open_local_camera():
+    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+    local_cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
+    if not local_cap.isOpened():
+        print(f"[stream_camera] Failed to open camera index {settings.CAMERA_INDEX}")
+        return None
+    print(f"[stream_camera] Camera opened (index={settings.CAMERA_INDEX})")
+    return local_cap
+
+
+def _send_camera_meta(source, frame):
+    global current_camera_meta
+    if frame is None or len(frame.shape) < 2:
+        return
+    height, width = frame.shape[:2]
+    meta = {
+        'source': source,
+        'width': width,
+        'height': height,
+        'mp': round((width * height) / 1_000_000, 1),
+    }
+    if meta != current_camera_meta:
+        current_camera_meta = meta
+        try:
+            eel.updateCameraMeta(meta)()
+        except Exception:
+            pass
+
+
+def _prepare_display_frame(frame, target_width=480, target_height=270):
+    if frame is None:
+        return frame
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0:
+        return frame
+
+    target_ratio = target_width / target_height
+    frame_ratio = width / height
+
+    if frame_ratio > target_ratio:
+        crop_width = int(height * target_ratio)
+        x1 = max((width - crop_width) // 2, 0)
+        cropped = frame[:, x1:x1 + crop_width]
+    else:
+        crop_height = int(width / target_ratio)
+        y1 = max((height - crop_height) // 2, 0)
+        cropped = frame[y1:y1 + crop_height, :]
+
+    return cv2.resize(cropped, (target_width, target_height))
+
+
+def _sync_phone_preview_source(server_status=None):
+    """Switch the dashboard preview to phone only once WebRTC is actually live."""
+    global phone_cam_active, phone_cam_server, engine_process
+
+    if not phone_cam_server or not phone_cam_server.is_running:
+        desired_phone_active = False
+    else:
+        status = server_status or phone_cam_server.get_status()
+        desired_phone_active = status == 'streaming'
+
+    if desired_phone_active != phone_cam_active:
+        phone_cam_active = desired_phone_active
+        if not (engine_process and engine_process.poll() is None):
+            _restart_preview_stream()
+
+    return phone_cam_active
 
 
 @eel.expose
@@ -67,7 +153,8 @@ def get_current_settings():
         'face_lock_on_unknown': getattr(settings, 'FACE_LOCK_ON_UNKNOWN', False),
         'face_lock_faces': face_lock_mgr.get_registered_faces(),
         'camera_source': getattr(settings, 'CAMERA_SOURCE', 0),
-        'gesture_calibration': getattr(settings, 'GESTURE_CALIBRATION', {})
+        'gesture_calibration': getattr(settings, 'GESTURE_CALIBRATION', {}),
+        'camera_meta': current_camera_meta,
     }
 
 
@@ -99,7 +186,8 @@ def get_user_name():
 
 @eel.expose
 def save_and_launch(config):
-    global engine_process, is_running, cap, phone_cam_active
+    global engine_process, is_running, cap, phone_cam_active, preview_generation
+    global engine_phone_source, engine_phone_handoff_pending
 
     # Kill any existing engine process first to free the IPC port
     if engine_process and engine_process.poll() is None:
@@ -119,6 +207,8 @@ def save_and_launch(config):
     cam_source = selected_source
     if phone_cam_active:
         cam_source = 'phone'
+    engine_phone_source = cam_source == 'phone'
+    engine_phone_handoff_pending = engine_phone_source
 
     # Build config dict for JSON persistence
     persist = {
@@ -159,6 +249,7 @@ def save_and_launch(config):
 
     # STOP the local OpenCV capture so the engine can use the camera
     # but DO NOT kill the stream_camera loop (is_running stays True)!
+    preview_generation += 1
     if cap:
         cap.release()
         cap = None
@@ -166,10 +257,11 @@ def save_and_launch(config):
     # Free up phone server ports for main.py to start its own server
     global phone_cam_server
     if phone_cam_active and phone_cam_server:
+        phone_cam_active = False
         phone_cam_server.stop()
         phone_cam_server = None
         # Wait for OS to release the ports before engine starts
-        time.sleep(1.5)
+        time.sleep(0.5)
 
     print("[SYSTEM] Settings Saved. Booting pointe...")
     project_dir = os.path.dirname(os.path.abspath(__file__))
@@ -177,7 +269,7 @@ def save_and_launch(config):
 
     # Give engine time to start its phone camera server before IPC begins
     if phone_cam_active:
-        time.sleep(3.0)
+        time.sleep(1.0)
 
     # Notify the JS frontend
     try:
@@ -190,6 +282,7 @@ def save_and_launch(config):
 def kill_engine():
     """Kill the running engine process and restart dashboard camera."""
     global engine_process, is_running, phone_cam_server, phone_cam_active
+    global engine_phone_source, engine_phone_handoff_pending
     if engine_process and engine_process.poll() is None:
         try:
             engine_process.terminate()
@@ -200,15 +293,18 @@ def kill_engine():
         print("[SYSTEM] Engine terminated.")
 
         # If phone camera was active, restart the phone camera server
-        if phone_cam_active and phone_cam_server is None:
+        if engine_phone_source and phone_cam_server is None:
             time.sleep(1.0)  # Let engine release the ports
             phone_cam_server = PhoneCameraServer()
             phone_cam_server.start()
             print("[SYSTEM] Phone camera server restarted.")
+            phone_cam_active = False
+
+        engine_phone_source = False
+        engine_phone_handoff_pending = False
 
         # Restart dashboard camera stream
-        is_running = True
-        eel.spawn(stream_camera)
+        _restart_preview_stream()
 
         try:
             eel.engine_killed()()
@@ -308,36 +404,36 @@ def activate_shortcut(action):
 @eel.expose
 def start_phone_camera():
     """Start the phone camera server and return QR code + URL."""
-    global phone_cam_server, phone_cam_active, is_running, cap
+    global phone_cam_server
     try:
         if phone_cam_server and phone_cam_server.is_running:
+            status = phone_cam_server.get_status()
+            _sync_phone_preview_source(status)
             return {
                 'success': True,
                 'qr': phone_cam_server.qr_base64,
                 'url': phone_cam_server.url,
-                'status': phone_cam_server.get_status()
+                'status': status,
+                'network_scope': phone_cam_server.network_scope,
+                'config_warning': phone_cam_server.config_warning,
+                'local_url': phone_cam_server.local_url,
+                'error': phone_cam_server.last_error,
             }
 
         phone_cam_server = PhoneCameraServer()
         phone_cam_server.start()
-        phone_cam_active = True
-
-        # Stop the webcam so phone camera can be used
-        is_running = False
-        time.sleep(0.3)
-        if cap:
-            cap.release()
-            cap = None
-
-        # Restart stream_camera with phone source
-        is_running = True
-        eel.spawn(stream_camera)
+        status = phone_cam_server.get_status()
+        _sync_phone_preview_source(status)
 
         return {
             'success': True,
             'qr': phone_cam_server.qr_base64,
             'url': phone_cam_server.url,
-            'status': phone_cam_server.get_status()
+            'status': status,
+            'network_scope': phone_cam_server.network_scope,
+            'config_warning': phone_cam_server.config_warning,
+            'local_url': phone_cam_server.local_url,
+            'error': phone_cam_server.last_error,
         }
     except Exception as e:
         return {'success': False, 'error': str(e)}
@@ -346,22 +442,16 @@ def start_phone_camera():
 @eel.expose
 def stop_phone_camera():
     """Stop the phone camera server and switch back to webcam."""
-    global phone_cam_server, phone_cam_active, is_running, cap
+    global phone_cam_server, phone_cam_active, engine_phone_source, engine_phone_handoff_pending
     phone_cam_active = False
+    engine_phone_source = False
+    engine_phone_handoff_pending = False
 
     if phone_cam_server:
         phone_cam_server.stop()
         phone_cam_server = None
 
-    # Restart webcam stream
-    is_running = False
-    time.sleep(0.3)
-    if cap:
-        cap.release()
-        cap = None
-
-    is_running = True
-    eel.spawn(stream_camera)
+    _restart_preview_stream()
     return {'success': True}
 
 
@@ -369,20 +459,41 @@ def stop_phone_camera():
 def get_phone_camera_status():
     """Return the current phone camera connection status."""
     if phone_cam_server and phone_cam_server.is_running:
+        status = phone_cam_server.get_status()
+        _sync_phone_preview_source(status)
         return {
-            'status': phone_cam_server.get_status(),
-            'url': phone_cam_server.url
+            'status': status,
+            'url': phone_cam_server.url,
+            'network_scope': phone_cam_server.network_scope,
+            'config_warning': phone_cam_server.config_warning,
+            'local_url': phone_cam_server.local_url,
+            'error': phone_cam_server.last_error,
+            'active_preview': phone_cam_active,
         }
-    return {'status': 'idle'}
+    if engine_process and engine_process.poll() is None and engine_phone_source:
+        return {
+            'status': 'handoff' if engine_phone_handoff_pending else 'engine',
+            'url': '',
+            'network_scope': 'local',
+            'config_warning': '',
+            'local_url': '',
+            'error': '',
+            'active_preview': False,
+        }
+    return {'status': 'idle', 'error': '', 'active_preview': False}
 
 
 def stream_camera():
-    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server, engine_process
+    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server, engine_process, preview_generation
+    global engine_phone_source, engine_phone_handoff_pending
     frame_send_count = 0
+    my_generation = preview_generation
 
     # Wait for browser to connect and React to mount before sending frames
     print("[stream_camera] Waiting for browser connection...")
     eel.sleep(2.0)
+    if not is_running or my_generation != preview_generation:
+        return
     print("[stream_camera] Starting camera stream...")
 
     import socket
@@ -392,6 +503,7 @@ def stream_camera():
 
     try:
         # Choose camera source
+        current_source = 'phone' if phone_cam_active and phone_cam_server else 'webcam'
         if phone_cam_active and phone_cam_server:
             cam = getattr(phone_cam_server, 'capture', None)
             if cam is None:
@@ -402,17 +514,15 @@ def stream_camera():
                     if cam is not None:
                         break
             cap = cam
-        else:
-            backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-            cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
-            if not cap.isOpened():
-                print(f"[stream_camera] Failed to open camera index {settings.CAMERA_INDEX}")
+        elif not (engine_process and engine_process.poll() is None and engine_phone_source):
+            cap = _open_local_camera()
+            if cap is None:
                 return
-            print(f"[stream_camera] ✅ Camera opened (index={settings.CAMERA_INDEX})")
+        else:
+            cap = None
 
         if cap is None:
-            print("[stream_camera] No camera source available")
-            return
+            print("[stream_camera] Waiting for engine IPC preview...")
         
         detector = FaceMeshDetector()
 
@@ -429,7 +539,7 @@ def stream_camera():
         # we will NOT call mouse.move() here, so the actual cursor stays safe!
         mouse_referee = MouseController()
 
-        while is_running:
+        while is_running and my_generation == preview_generation:
             # --- IPC FEED IF ENGINE IS RUNNING ---
             if engine_process and engine_process.poll() is None:
                 try:
@@ -441,6 +551,7 @@ def stream_camera():
                             ipc_conn.setblocking(False)
                             buffer_str = ""
                             print("[stream_camera] IPC connected to engine.")
+                            engine_phone_handoff_pending = False
                         except (ConnectionRefusedError, OSError, socket.timeout):
                             # Engine hasn't started IPC server yet, retry later
                             ipc_conn.close()
@@ -486,20 +597,19 @@ def stream_camera():
 
                 # Auto-restart local camera
                 engine_process = None  # Clear stale reference
+                engine_phone_handoff_pending = False
                 print("[stream_camera] Engine exited — restarting local camera.")
-                if phone_cam_active and phone_cam_server is None:
+                if engine_phone_source and phone_cam_server is None:
                     time.sleep(0.5)
                     try:
                         phone_cam_server = PhoneCameraServer()
                         phone_cam_server.start()
-                        cap = getattr(phone_cam_server, 'capture', None)
+                        cap = None
                     except Exception:
                         pass
                 elif cap is None:
-                    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-                    cap = cv2.VideoCapture(settings.CAMERA_INDEX, backend)
-                    if not cap.isOpened():
-                        cap = None
+                    cap = _open_local_camera()
+                engine_phone_source = False
                 try:
                     eel.engine_killed()()
                 except Exception:
@@ -509,6 +619,28 @@ def stream_camera():
             if cap is None:
                 eel.sleep(0.1)
                 continue
+
+            if phone_cam_active and phone_cam_server:
+                phone_status = phone_cam_server.get_status()
+                if phone_status in ('error', 'idle') or (phone_status == 'waiting' and phone_cam_server.has_streamed):
+                    print(f"[stream_camera] Phone stream status is '{phone_status}' - falling back to webcam preview.")
+                    phone_cam_active = False
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    cap = _open_local_camera()
+                    current_source = 'webcam'
+                    frame_send_count = 0
+                    if cap is None:
+                        eel.sleep(0.1)
+                        continue
+                    try:
+                        eel.phone_camera_disconnected()()
+                    except Exception:
+                        pass
+                    eel.sleep(0.05)
+                    continue
 
             try:
                 success, frame, *_ = cap.read()
@@ -520,6 +652,9 @@ def stream_camera():
             if not success:
                 eel.sleep(0.01)
                 continue
+
+            current_source = 'phone' if phone_cam_active and phone_cam_server else 'webcam'
+            _send_camera_meta(current_source, frame)
 
             # ONLY run expensive AI detection if we are actively in the tutorial
             face_detected = False
@@ -546,7 +681,7 @@ def stream_camera():
                         eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
 
             # Resize and send frame to UI (lower res = much faster b64 transfer)
-            display_frame = cv2.resize(frame, (480, 270))
+            display_frame = _prepare_display_frame(frame, 480, 270)
             _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
             b64_str = base64.b64encode(buffer).decode('utf-8')
 
@@ -555,16 +690,22 @@ def stream_camera():
                 eel.updateTelemetry(face_detected)()
                 frame_send_count += 1
                 if frame_send_count == 1:
-                    print("[stream_camera] ✅ First frame sent to JS successfully!")
+                    print("[stream_camera] First frame sent to JS successfully!")
                 elif frame_send_count % 100 == 0:
                     print(f"[stream_camera] {frame_send_count} frames sent")
             except Exception as e:
                 if frame_send_count == 0:
-                    print(f"[stream_camera] ❌ Failed to send frame to JS: {e}")
+                    print(f"[stream_camera] Failed to send frame to JS: {e}")
                 pass
 
             # Yield briefly to let Eel send WebSockets without hogging CPU (0.005s = up to 200 FPS)
             eel.sleep(0.005)
+
+        if ipc_conn:
+            try:
+                ipc_conn.close()
+            except Exception:
+                pass
     except Exception as e:
         print(f"[stream_camera] Fatal error: {e}")
         import traceback

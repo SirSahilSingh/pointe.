@@ -4,11 +4,17 @@ import { motion } from 'framer-motion'
 import { callEel } from '../hooks/useEel'
 import StatusBadge from '../components/StatusBadge'
 
+const PHONE_CONNECTED_STATUSES = new Set(['connected', 'streaming', 'handoff', 'engine'])
+
 export default function PhoneCamera({ onClose, setConfig }) {
     const [running, setRunning] = useState(false)
     const [qrCode, setQrCode] = useState(null)
     const [url, setUrl] = useState('')
+    const [localUrl, setLocalUrl] = useState('')
     const [status, setStatus] = useState('offline')
+    const [networkScope, setNetworkScope] = useState('local')
+    const [configWarning, setConfigWarning] = useState('')
+    const [errorMessage, setErrorMessage] = useState('')
     const pollRef = useRef(null)
     const modalRef = useRef(null)
 
@@ -19,6 +25,14 @@ export default function PhoneCamera({ onClose, setConfig }) {
             if (result) {
                 setStatus(result.status || 'idle')
                 if (result.url) setUrl(result.url)
+                setLocalUrl(result.local_url || '')
+                setNetworkScope(result.network_scope || 'local')
+                setConfigWarning(result.config_warning || '')
+                setErrorMessage(result.error || '')
+                if (setConfig) {
+                    const usingPhone = PHONE_CONNECTED_STATUSES.has(result.status)
+                    setConfig(prev => ({ ...prev, camera_source: usingPhone ? 'phone' : 0 }))
+                }
             }
         }, 2000)
     }
@@ -32,7 +46,6 @@ export default function PhoneCamera({ onClose, setConfig }) {
 
     useEffect(() => () => stopPolling(), [])
 
-    // ESC to close
     useEffect(() => {
         const handler = (e) => { if (e.key === 'Escape') onClose() }
         document.addEventListener('keydown', handler)
@@ -47,9 +60,16 @@ export default function PhoneCamera({ onClose, setConfig }) {
             setRunning(true)
             setQrCode(result.qr)
             setUrl(result.url)
+            setLocalUrl(result.local_url || '')
             setStatus(result.status || 'waiting')
+            setNetworkScope(result.network_scope || 'local')
+            setConfigWarning(result.config_warning || '')
+            setErrorMessage(result.error || '')
             startPolling()
-            if (setConfig) setConfig(prev => ({ ...prev, camera_source: 'phone' }))
+            if (setConfig) {
+                const usingPhone = PHONE_CONNECTED_STATUSES.has(result.status)
+                setConfig(prev => ({ ...prev, camera_source: usingPhone ? 'phone' : 0 }))
+            }
         } else {
             alert('Failed to start phone camera: ' + (result?.error || 'Unknown error'))
         }
@@ -61,16 +81,27 @@ export default function PhoneCamera({ onClose, setConfig }) {
         setRunning(false)
         setQrCode(null)
         setUrl('')
+        setLocalUrl('')
         setStatus('offline')
+        setNetworkScope('local')
+        setConfigWarning('')
+        setErrorMessage('')
         if (setConfig) setConfig(prev => ({ ...prev, camera_source: 0 }))
     }
 
-    const steps = [
-        { num: 1, title: 'Same Network', desc: 'Connect your phone and PC to the same WiFi network' },
-        { num: 2, title: 'Scan QR', desc: "Open your phone's camera and scan the QR code" },
-        { num: 3, title: 'Security Prompt', desc: 'Your browser may show a security warning — this is normal for local connections. Tap "Advanced" → "Proceed" to continue.' },
-        { num: 4, title: 'Allow Camera', desc: 'Grant camera permission when prompted' },
-    ]
+    const steps = networkScope === 'remote'
+        ? [
+            { num: 1, title: 'Scan QR', desc: "Open your phone's camera and scan the QR code from anywhere." },
+            { num: 2, title: 'Open Secure Link', desc: 'The QR opens your public phone-camera page with remote pairing enabled.' },
+            { num: 3, title: 'Allow Camera', desc: 'Grant camera permission when prompted on your phone.' },
+            { num: 4, title: 'Stay Open', desc: 'Keep this page visible while Pointe streams over WebRTC.' },
+        ]
+        : [
+            { num: 1, title: 'Same Network', desc: 'Connect your phone and PC to the same WiFi network, or configure public remote URLs.' },
+            { num: 2, title: 'Scan QR', desc: "Open your phone's camera and scan the QR code." },
+            { num: 3, title: 'Security Prompt', desc: 'Your browser may show a security warning for the local link. Tap "Advanced" and continue if prompted.' },
+            { num: 4, title: 'Allow Camera', desc: 'Grant camera permission when prompted.' },
+        ]
 
     return createPortal(
         <motion.div
@@ -113,7 +144,6 @@ export default function PhoneCamera({ onClose, setConfig }) {
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* ── HEADER ── */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -136,7 +166,9 @@ export default function PhoneCamera({ onClose, setConfig }) {
                             color: '#5a5a65',
                             margin: '2px 0 0',
                             fontFamily: 'var(--font-sans)',
-                        }}>Use your phone's camera as the video source for face tracking.</p>
+                        }}>
+                            Use your phone&apos;s camera as the video source for face tracking.
+                        </p>
                     </div>
                     <button
                         onClick={onClose}
@@ -170,7 +202,6 @@ export default function PhoneCamera({ onClose, setConfig }) {
                     </button>
                 </div>
 
-                {/* ── BODY ── */}
                 <div style={{
                     flex: 1,
                     overflowY: 'auto',
@@ -180,8 +211,6 @@ export default function PhoneCamera({ onClose, setConfig }) {
                     gap: '20px',
                 }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-
-                        {/* ── Connection Section ── */}
                         <div style={{
                             display: 'flex',
                             flexDirection: 'column',
@@ -201,7 +230,6 @@ export default function PhoneCamera({ onClose, setConfig }) {
                                 <StatusBadge status={status} />
                             </div>
 
-                            {/* QR Code */}
                             <div style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -238,21 +266,72 @@ export default function PhoneCamera({ onClose, setConfig }) {
                             {url && (
                                 <div style={{
                                     display: 'flex',
-                                    alignItems: 'center',
+                                    flexDirection: 'column',
                                     gap: '8px',
                                     padding: '8px 12px',
                                     borderRadius: '8px',
                                     background: 'rgba(255,255,255,0.02)',
                                     border: '1px solid rgba(255,255,255,0.04)',
                                 }}>
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a5a65" strokeWidth="1.5" style={{ flexShrink: 0 }}>
-                                        <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
-                                    </svg>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5a5a65" strokeWidth="1.5" style={{ flexShrink: 0 }}>
+                                            <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+                                        </svg>
+                                        <span style={{ fontSize: '10px', color: '#7a7a85', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                            {networkScope === 'remote' ? 'Public URL' : 'Local URL'}
+                                        </span>
+                                    </div>
                                     <span style={{ fontSize: '11px', color: '#5a5a65', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+                                    {networkScope === 'remote' && localUrl && (
+                                        <span style={{ fontSize: '10px', color: '#454550', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            Desktop local endpoint: {localUrl}
+                                        </span>
+                                    )}
                                 </div>
                             )}
 
-                            {/* Action button */}
+                            {configWarning && (
+                                <div style={{
+                                    padding: '10px 12px',
+                                    borderRadius: '8px',
+                                    background: 'rgba(251,191,36,0.08)',
+                                    border: '1px solid rgba(251,191,36,0.18)',
+                                    color: '#fbbf24',
+                                    fontSize: '11px',
+                                    lineHeight: 1.5,
+                                }}>
+                                    {configWarning}
+                                </div>
+                            )}
+
+                            {status === 'error' && errorMessage && (
+                                <div style={{
+                                    padding: '10px 12px',
+                                    borderRadius: '8px',
+                                    background: 'rgba(239,68,68,0.08)',
+                                    border: '1px solid rgba(239,68,68,0.2)',
+                                    color: '#fca5a5',
+                                    fontSize: '11px',
+                                    lineHeight: 1.5,
+                                }}>
+                                    Phone camera connection failed: {errorMessage}
+                                </div>
+                            )}
+
+                            {running && status === 'waiting' && (
+                                <div style={{
+                                    padding: '10px 12px',
+                                    borderRadius: '8px',
+                                    background: 'rgba(255,255,255,0.02)',
+                                    border: '1px solid rgba(255,255,255,0.04)',
+                                    color: '#a0a0a8',
+                                    fontSize: '11px',
+                                    lineHeight: 1.5,
+                                }}>
+                                    Your webcam preview stays active until the phone stream finishes pairing.
+                                </div>
+                            )}
+
                             {!running ? (
                                 <button onClick={handleStart} className="btn-primary w-full justify-center">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -267,7 +346,6 @@ export default function PhoneCamera({ onClose, setConfig }) {
                             )}
                         </div>
 
-                        {/* ── Instructions Section ── */}
                         <div style={{
                             display: 'flex',
                             flexDirection: 'column',
@@ -286,18 +364,20 @@ export default function PhoneCamera({ onClose, setConfig }) {
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 {steps.map(step => (
-                                    <div key={step.num} style={{
-                                        display: 'flex',
-                                        alignItems: 'flex-start',
-                                        gap: '12px',
-                                        padding: '12px',
-                                        borderRadius: '10px',
-                                        background: 'rgba(255,255,255,0.02)',
-                                        border: '1px solid rgba(255,255,255,0.03)',
-                                        transition: 'background 200ms',
-                                    }}
-                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
-                                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                                    <div
+                                        key={step.num}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'flex-start',
+                                            gap: '12px',
+                                            padding: '12px',
+                                            borderRadius: '10px',
+                                            background: 'rgba(255,255,255,0.02)',
+                                            border: '1px solid rgba(255,255,255,0.03)',
+                                            transition: 'background 200ms',
+                                        }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
                                     >
                                         <div style={{
                                             width: '24px',

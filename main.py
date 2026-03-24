@@ -79,7 +79,62 @@ class _TrackingState:
         self.mp_time_ms = 0.0      # last MediaPipe processing time
 
 
-def _mediapipe_worker(cap, detector, hand_detector, state, running_flag):
+def _open_local_capture(source):
+    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+    cap = BufferlessCapture(source, backend)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
+
+
+def _swap_capture(capture_state, new_cap, new_source, new_phone_server=None):
+    old_cap = None
+    old_phone_server = None
+    with capture_state["lock"]:
+        old_cap = capture_state["cap"]
+        old_phone_server = capture_state["phone_server"]
+        capture_state["cap"] = new_cap
+        capture_state["source"] = new_source
+        capture_state["phone_server"] = new_phone_server
+
+    if old_phone_server and old_phone_server is not new_phone_server:
+        try:
+            old_phone_server.stop()
+        except Exception:
+            pass
+    elif old_cap and old_cap is not new_cap:
+        try:
+            old_cap.release()
+        except Exception:
+            pass
+
+
+def _prepare_ipc_frame(frame, target_width=320, target_height=180):
+    if frame is None:
+        return frame
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0:
+        return frame
+
+    target_ratio = target_width / target_height
+    frame_ratio = width / height
+
+    if frame_ratio > target_ratio:
+        crop_width = int(height * target_ratio)
+        x1 = max((width - crop_width) // 2, 0)
+        cropped = frame[:, x1:x1 + crop_width]
+    else:
+        crop_height = int(width / target_ratio)
+        y1 = max((height - crop_height) // 2, 0)
+        cropped = frame[y1:y1 + crop_height, :]
+
+    return cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_AREA)
+
+
+def _mediapipe_worker(capture_state, detector, hand_detector, state, running_flag):
     """Background thread: grab frames and run MediaPipe at a controlled rate.
 
     Rate-limited to ~25fps to prevent thermal throttling, and hands are
@@ -95,6 +150,13 @@ def _mediapipe_worker(cap, detector, hand_detector, state, running_flag):
 
     while running_flag[0]:
         iter_start = time.perf_counter()
+
+        with capture_state["lock"]:
+            cap = capture_state["cap"]
+
+        if cap is None:
+            time.sleep(0.01)
+            continue
 
         ok, img, frame_id = cap.read()
         if not ok or img is None:
@@ -222,25 +284,34 @@ def main():
     source = settings.CAMERA_INDEX
     camera_source = getattr(settings, 'CAMERA_SOURCE', 0)
 
+    phone_server = None
+    active_source = 'webcam'
+
     if camera_source == 'phone':
-        # Use the phone camera's BufferlessCapture
-        from src.vision.phone_camera import PhoneCameraServer
-        # Connect to the already-running server started by dashboard
-        phone_server = PhoneCameraServer()
-        phone_server.start()
-        cap = phone_server.capture
-        print("[SYSTEM] Using phone camera as video source.")
+        try:
+            from src.vision.phone_camera import PhoneCameraServer
+            phone_server = PhoneCameraServer()
+            phone_server.start()
+            cap = phone_server.capture
+            active_source = 'phone'
+            print("[SYSTEM] Using phone camera as video source.")
+        except Exception as exc:
+            print(f"[SYSTEM] Phone camera unavailable, falling back to webcam: {exc}")
+            cap = _open_local_capture(source)
+            import time as _t; _t.sleep(0.5)
     else:
-        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-        cap = BufferlessCapture(source, backend)
+        cap = _open_local_capture(source)
         # Request MJPG codec — many USB cameras deliver higher FPS with
         # compressed transport than raw YUV
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         import time as _t; _t.sleep(0.5)  # let threaded reader grab first frame
+
+    capture_state = {
+        "lock": threading.Lock(),
+        "cap": cap,
+        "source": active_source,
+        "phone_server": phone_server,
+    }
 
     detector = FaceMeshDetector()
     parallax = ParallaxController(settings.SENSITIVITY_X, settings.SENSITIVITY_Y)
@@ -285,7 +356,7 @@ def main():
     _mp_running = [True]
     mp_thread = threading.Thread(
         target=_mediapipe_worker,
-        args=(cap, detector, hand_detector, tracking, _mp_running),
+        args=(capture_state, detector, hand_detector, tracking, _mp_running),
         daemon=True
     )
     mp_thread.start()
@@ -350,6 +421,22 @@ def main():
         if trigger_noise_measure:
             noise_tool.start()
             trigger_noise_measure = False
+
+        current_phone_server = capture_state["phone_server"]
+        if capture_state["source"] == 'phone' and current_phone_server:
+            phone_status = current_phone_server.get_status()
+            if phone_status in ('error', 'idle') or (phone_status == 'waiting' and current_phone_server.has_streamed):
+                print(f"[SYSTEM] Phone stream status is '{phone_status}' - switching engine back to webcam.")
+                try:
+                    replacement_cap = _open_local_capture(source)
+                    _swap_capture(capture_state, replacement_cap, 'webcam', None)
+                    _has_face = False
+                    _last_raw_dx = 0.0
+                    _last_raw_dy = 0.0
+                    motion_engine.reset()
+                    hud.show_message("PHONE LOST - USING WEBCAM", 75)
+                except Exception as exc:
+                    print(f"[SYSTEM] Failed to fall back to webcam: {exc}")
 
         # 2. Read latest tracking results (non-blocking, ~0ms)
         with tracking.lock:
@@ -483,7 +570,7 @@ def main():
                     with tracking.lock:
                         _ipc_frame = tracking.frame
                     if _ipc_frame is not None:
-                        frame_ui = cv2.resize(_ipc_frame, (320, 180), interpolation=cv2.INTER_AREA)
+                        frame_ui = _prepare_ipc_frame(_ipc_frame, 320, 180)
                         _, buffer = cv2.imencode('.jpg', frame_ui, [cv2.IMWRITE_JPEG_QUALITY, 40])
                         b64_str = base64.b64encode(buffer).decode('utf-8')
                         payload = json.dumps({"frame": b64_str, "face_detected": _has_face}) + "\n"
@@ -531,7 +618,15 @@ def main():
 
     _mp_running[0] = False
     mp_thread.join(timeout=2)
-    cap.release()
+    final_cap = capture_state["cap"]
+    final_phone_server = capture_state["phone_server"]
+    if final_phone_server:
+        try:
+            final_phone_server.stop()
+        except Exception:
+            pass
+    elif final_cap:
+        final_cap.release()
     signal_log.close()
     if client_conn: client_conn.close()
     ipc_server.close()

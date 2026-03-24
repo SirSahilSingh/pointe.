@@ -53,6 +53,11 @@ export function onLightWarning(cb) {
     console.log('[useEel] onLightWarning callback set');
 }
 
+export function onCameraMeta(cb) {
+    window._eelCameraMetaCallback = cb;
+    console.log('[useEel] onCameraMeta callback set');
+}
+
 /**
  * Call an Eel-exposed Python function.
  * Returns null if Eel is not available.

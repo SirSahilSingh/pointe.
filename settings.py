@@ -67,6 +67,65 @@ import sys
 import json
 import tempfile
 
+
+def _default_phone_camera_ice_servers():
+    """Build the default ICE server list, optionally augmented by TURN env vars."""
+    servers = [
+        {"urls": ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"]},
+    ]
+
+    turn_urls_raw = os.environ.get("POINTE_PHONE_CAMERA_TURN_URLS", "").strip()
+    turn_username = os.environ.get("POINTE_PHONE_CAMERA_TURN_USERNAME", "").strip()
+    turn_password = os.environ.get("POINTE_PHONE_CAMERA_TURN_PASSWORD", "").strip()
+
+    if turn_urls_raw:
+        turn_urls = [url.strip() for url in turn_urls_raw.split(",") if url.strip()]
+        turn_server = {"urls": turn_urls}
+        if turn_username:
+            turn_server["username"] = turn_username
+        if turn_password:
+            turn_server["credential"] = turn_password
+        servers.append(turn_server)
+
+    return servers
+
+
+def _normalize_ice_servers(value):
+    """Return a sanitized ICE server list or defaults if the input is invalid."""
+    if not isinstance(value, list):
+        return _default_phone_camera_ice_servers()
+
+    normalized = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+
+        urls = entry.get("urls")
+        if isinstance(urls, str):
+            urls = [urls]
+        if not isinstance(urls, list):
+            continue
+
+        clean_urls = [url for url in urls if isinstance(url, str) and url.strip()]
+        if not clean_urls:
+            continue
+
+        normalized_entry = {"urls": clean_urls}
+        username = entry.get("username")
+        credential = entry.get("credential")
+        if isinstance(username, str) and username.strip():
+            normalized_entry["username"] = username
+        if isinstance(credential, str) and credential.strip():
+            normalized_entry["credential"] = credential
+        normalized.append(normalized_entry)
+
+    return normalized or _default_phone_camera_ice_servers()
+
+
+PHONE_CAMERA_PUBLIC_URL = os.environ.get("POINTE_PHONE_CAMERA_PUBLIC_URL", "").strip()
+PHONE_CAMERA_SIGNAL_URL = os.environ.get("POINTE_PHONE_CAMERA_SIGNAL_URL", "").strip()
+PHONE_CAMERA_ICE_SERVERS = _default_phone_camera_ice_servers()
+
 # Per-user config path: %APPDATA%/Pointe/config.json (Windows),
 # ~/.config/Pointe/config.json (Linux), ~/Library/Application Support/Pointe (macOS)
 def _get_config_dir():
@@ -84,6 +143,7 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
 # Only these module-level attributes can be overridden from JSON.
 _CONFIG_WHITELIST = {
     'CAMERA_INDEX', 'CAMERA_SOURCE', 'FRAME_WIDTH', 'FRAME_HEIGHT',
+    'PHONE_CAMERA_PUBLIC_URL', 'PHONE_CAMERA_SIGNAL_URL', 'PHONE_CAMERA_ICE_SERVERS',
     'SENSITIVITY_X', 'SENSITIVITY_Y',
     'SMOOTHING', 'ACCELERATION', 'DEADZONE',
     'GESTURE_MAPPINGS', 'GESTURE_CALIBRATION',
@@ -99,6 +159,9 @@ _CONFIG_TYPES = {
     'CAMERA_SOURCE': (int, str),  # int for webcam index, 'phone' for phone
     'FRAME_WIDTH': (int,),
     'FRAME_HEIGHT': (int,),
+    'PHONE_CAMERA_PUBLIC_URL': (str,),
+    'PHONE_CAMERA_SIGNAL_URL': (str,),
+    'PHONE_CAMERA_ICE_SERVERS': (list,),
     'SENSITIVITY_X': (int, float),
     'SENSITIVITY_Y': (int, float),
     'SMOOTHING': (int, float),
@@ -164,6 +227,8 @@ def load_config():
                 continue
         if key == 'GESTURE_CALIBRATION':
             value = _normalize_calibration(value)
+        elif key == 'PHONE_CAMERA_ICE_SERVERS':
+            value = _normalize_ice_servers(value)
         setattr(_this, key, value)
 
 
@@ -176,6 +241,8 @@ def save_config(config_dict):
     data = dict(config_dict)
     if 'GESTURE_CALIBRATION' in data:
         data['GESTURE_CALIBRATION'] = _normalize_calibration(data['GESTURE_CALIBRATION'])
+    if 'PHONE_CAMERA_ICE_SERVERS' in data:
+        data['PHONE_CAMERA_ICE_SERVERS'] = _normalize_ice_servers(data['PHONE_CAMERA_ICE_SERVERS'])
 
     # Atomic write: temp file in same directory, then rename
     fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, suffix='.tmp', prefix='config_')
