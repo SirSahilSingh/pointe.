@@ -52,11 +52,12 @@ def set_noise_measure(): global trigger_noise_measure; trigger_noise_measure = T
 
 
 # Assign OS-Level Shortcuts (Windows only — requires `keyboard` package)
+# NOTE: Ctrl+D is reserved for the app-local Dashboard nav shortcut.
 if _HAS_KEYBOARD:
     keyboard.add_hotkey('ctrl+c', set_recalibrate)
     keyboard.add_hotkey('ctrl+m', set_toggle)
     keyboard.add_hotkey('ctrl+q', set_quit)
-    keyboard.add_hotkey('ctrl+d', set_debug_toggle)
+    keyboard.add_hotkey('ctrl+shift+d', set_debug_toggle)
     keyboard.add_hotkey('ctrl+n', set_noise_measure)
 
 
@@ -77,6 +78,7 @@ class _TrackingState:
         self.aspect_ratio = 1.333
         self.result_id = 0         # incremented on each new result
         self.mp_time_ms = 0.0      # last MediaPipe processing time
+        self.performance_tier = 'normal'  # adaptive tier (normal/degraded)
 
 
 def _open_local_capture(source):
@@ -99,6 +101,7 @@ def _swap_capture(capture_state, new_cap, new_source, new_phone_server=None):
         capture_state["cap"] = new_cap
         capture_state["source"] = new_source
         capture_state["phone_server"] = new_phone_server
+        capture_state["phone_selected_at"] = time.perf_counter() if new_source == "phone" else None
 
     if old_phone_server and old_phone_server is not new_phone_server:
         try:
@@ -134,25 +137,93 @@ def _prepare_ipc_frame(frame, target_width=320, target_height=180):
     return cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_AREA)
 
 
+# Resolution presets per performance tier.
+# Only the MediaPipe input resolution changes — MotionEngine tuning is NEVER touched.
+_TRACKING_RES = {
+    'normal':   {'webcam': (240, 180), 'phone': (320, 240)},
+    'degraded': {'webcam': (160, 120), 'phone': (200, 150)},
+}
+
+
+def _prepare_tracking_frame(frame, source, tier='normal'):
+    """Prepare MediaPipe input while preserving webcam behavior.
+
+    Webcam keeps the existing low-latency 240x180 path in normal tier.
+    In degraded tier, resolution is reduced to cut MediaPipe cost.
+    Phone frames are center-cropped to 4:3 before resize.
+
+    Only tracking resolution changes between tiers — the MotionEngine
+    cursor model (smoothing, dead zone, speed curve, 1-Euro filters)
+    is never modified by tier changes.
+    """
+    if frame is None:
+        return frame
+
+    res = _TRACKING_RES.get(tier, _TRACKING_RES['normal'])
+
+    if source != 'phone':
+        target = res['webcam']
+        return cv2.resize(frame, target, interpolation=cv2.INTER_AREA)
+
+    height, width = frame.shape[:2]
+    if height <= 0 or width <= 0:
+        return frame
+
+    target_width, target_height = res['phone']
+    target_ratio = target_width / target_height
+    frame_ratio = width / height
+
+    if frame_ratio > target_ratio:
+        crop_width = int(height * target_ratio)
+        x1 = max((width - crop_width) // 2, 0)
+        cropped = frame[:, x1:x1 + crop_width]
+    else:
+        crop_height = int(width / target_ratio)
+        y1 = max((height - crop_height) // 2, 0)
+        cropped = frame[y1:y1 + crop_height, :]
+
+    return cv2.resize(cropped, (target_width, target_height), interpolation=cv2.INTER_AREA)
+
+
 def _mediapipe_worker(capture_state, detector, hand_detector, state, running_flag):
     """Background thread: grab frames and run MediaPipe at a controlled rate.
 
-    Rate-limited to ~25fps to prevent thermal throttling, and hands are
-    processed only every 3rd frame to cut CPU load.
+    Rate-limited to ~35fps to prevent thermal throttling, and hands are
+    processed only every 2nd frame (normal) or 4th (degraded) to cut CPU load.
+
+    Adaptive performance tiers:
+      - 'normal':   full tracking resolution, hands every 2nd frame
+      - 'degraded': reduced resolution, hands every 4th frame
+    Tier changes ONLY affect MediaPipe input resolution and hand cadence.
+    The MotionEngine cursor model is NEVER modified by tier transitions.
     """
     last_frame_id = -1
     first_logged = False
     frame_count = 0
-    _HANDS_EVERY_N = 2           # process hands frequently enough for fast window-swap sweeps
+    _HANDS_NORMAL = 2            # hand cadence in normal tier
+    _HANDS_DEGRADED = 4          # hand cadence in degraded tier
+    _hands_every_n = _HANDS_NORMAL
     _TARGET_MP_FPS = 35          # max processing rate
     _MIN_MP_PERIOD = 1.0 / _TARGET_MP_FPS
     _cached_hand_results = None  # reuse between hand-processing frames
+
+    # ── Adaptive performance tier state ──
+    _current_tier = 'normal'
+    _fps_timestamps = []         # rolling window of result timestamps
+    _FPS_WINDOW_SEC = 2.0        # sliding window length
+    _ENTER_DEGRADED_FPS = 12     # drop below this → start counting
+    _EXIT_DEGRADED_FPS = 20      # rise above this → start recovery
+    _ENTER_HOLD_SEC = 3.0        # sustained low FPS before switching
+    _EXIT_HOLD_SEC = 4.0         # sustained high FPS before recovering
+    _low_since = None            # perf_counter when low FPS started
+    _recovery_since = None       # perf_counter when high FPS started
 
     while running_flag[0]:
         iter_start = time.perf_counter()
 
         with capture_state["lock"]:
             cap = capture_state["cap"]
+            source = capture_state["source"]
 
         if cap is None:
             time.sleep(0.01)
@@ -178,17 +249,53 @@ def _mediapipe_worker(capture_state, detector, hand_detector, state, running_fla
         h, w, _ = img.shape
         aspect = w / float(h)
 
-        # Downscale to 240×180 (smaller = faster, landmarks are normalized 0-1)
-        img_mp = cv2.resize(img, (240, 180), interpolation=cv2.INTER_AREA)
+        # Use current tier for tracking resolution selection.
+        # ONLY the input resolution to MediaPipe changes — MotionEngine is untouched.
+        img_mp = _prepare_tracking_frame(img, source, tier=_current_tier)
         rgb_img = cv2.cvtColor(img_mp, cv2.COLOR_BGR2RGB)
 
         t0 = time.perf_counter()
         results = detector.face_mesh.process(rgb_img)
         mp_ms = (time.perf_counter() - t0) * 1000
 
-        # Process hands separately — outside face mesh timing
-        if frame_count % _HANDS_EVERY_N == 0:
+        # Process hands separately — cadence adapts to tier
+        if frame_count % _hands_every_n == 0:
             _cached_hand_results = hand_detector.process(rgb_img)
+
+        # ── Adaptive tier management (FPS-driven, not brightness) ──
+        now_t = time.perf_counter()
+        _fps_timestamps.append(now_t)
+        cutoff = now_t - _FPS_WINDOW_SEC
+        _fps_timestamps = [t for t in _fps_timestamps if t > cutoff]
+        window_fps = len(_fps_timestamps) / _FPS_WINDOW_SEC
+
+        if _current_tier == 'normal':
+            if window_fps < _ENTER_DEGRADED_FPS:
+                if _low_since is None:
+                    _low_since = now_t
+                elif (now_t - _low_since) >= _ENTER_HOLD_SEC:
+                    _current_tier = 'degraded'
+                    _hands_every_n = _HANDS_DEGRADED
+                    _low_since = None
+                    _recovery_since = None
+                    state.performance_tier = 'degraded'
+                    print(f"[PERF] Entered degraded tier (MP FPS={window_fps:.1f}). "
+                          f"Reduced tracking resolution, hands every {_HANDS_DEGRADED} frames.")
+            else:
+                _low_since = None
+        elif _current_tier == 'degraded':
+            if window_fps >= _EXIT_DEGRADED_FPS:
+                if _recovery_since is None:
+                    _recovery_since = now_t
+                elif (now_t - _recovery_since) >= _EXIT_HOLD_SEC:
+                    _current_tier = 'normal'
+                    _hands_every_n = _HANDS_NORMAL
+                    _recovery_since = None
+                    _low_since = None
+                    state.performance_tier = 'normal'
+                    print(f"[PERF] Recovered to normal tier (MP FPS={window_fps:.1f}).")
+            else:
+                _recovery_since = None
 
         # Extract face data and publish atomically
         if results.multi_face_landmarks:
@@ -254,11 +361,11 @@ def main():
     global trigger_debug_toggle, trigger_noise_measure
 
     print("\n[SYSTEM] pointe is now running in Stealth Mode.")
-    print("  Ctrl+M -> Toggle Mouse")
-    print("  Ctrl+C -> Recalibrate Face")
-    print("  Ctrl+D -> Toggle Debug Overlay")
-    print("  Ctrl+N -> Noise Measurement")
-    print("  Ctrl+Q -> Quit Engine\n")
+    print("  Ctrl+M         -> Toggle Mouse")
+    print("  Ctrl+C         -> Recalibrate Face")
+    print("  Ctrl+Shift+D   -> Toggle Debug Overlay")
+    print("  Ctrl+N         -> Noise Measurement")
+    print("  Ctrl+Q         -> Quit Engine\n")
 
     import socket
     import json
@@ -311,6 +418,7 @@ def main():
         "cap": cap,
         "source": active_source,
         "phone_server": phone_server,
+        "phone_selected_at": time.perf_counter() if active_source == 'phone' else None,
     }
 
     detector = FaceMeshDetector()
@@ -382,6 +490,28 @@ def main():
     _perf_mp_ms_accum = 0.0
     _PERF_INTERVAL_SEC = 5.0     # report every 5 seconds
     _last_ipc_time = 0.0         # IPC broadcast rate limiter
+    PHONE_CONNECT_TIMEOUT_SEC = 6.0
+    _last_active_source = active_source  # track source changes
+    _live_mp_fps = 0.0
+    _live_mp_window_start = time.perf_counter()
+    _live_mp_window_results = 0
+
+    # Apply source-specific motion tuning at startup
+    def _apply_motion_config(src):
+        """Hot-swap MotionEngine parameters for the active camera source."""
+        base_cfg = getattr(settings, 'MOTION_ENGINE', {})
+        if src == 'phone':
+            phone_cfg = {**base_cfg, **getattr(settings, 'MOTION_ENGINE_PHONE', {})}
+            tuned_cfg = dict(phone_cfg)
+            tuned_cfg['raw_smooth'] = min(max(phone_cfg.get('raw_smooth', 0.10), base_cfg.get('raw_smooth', 0.08)), 0.11)
+            tuned_cfg['dead_zone'] = min(max(phone_cfg.get('dead_zone', 0.09), base_cfg.get('dead_zone', 0.08)), 0.095)
+            tuned_cfg['max_speed'] = max(phone_cfg.get('max_speed', base_cfg.get('max_speed', 900)), int(base_cfg.get('max_speed', 900) * 0.95))
+            motion_engine.configure(tuned_cfg, reset_state=True)
+            print(f"[SYSTEM] Applied phone motion config (smooth={motion_engine.raw_smooth}, dz={motion_engine.dead_zone}, max={motion_engine.max_speed})")
+        else:
+            motion_engine.configure(base_cfg, reset_state=True)
+
+    _apply_motion_config(active_source)
 
     hud.show_message("GHOST-TYPE ENGINE ACTIVE", 60)
 
@@ -423,17 +553,47 @@ def main():
             trigger_noise_measure = False
 
         current_phone_server = capture_state["phone_server"]
-        if capture_state["source"] == 'phone' and current_phone_server:
+        current_source = capture_state["source"]
+
+        if current_source != _last_active_source:
+            print(f"[SYSTEM] Active source changed: {_last_active_source} -> {current_source}")
+            _last_active_source = current_source
+            _has_face = False
+            _last_raw_dx = 0.0
+            _last_raw_dy = 0.0
+            parallax.is_calibrated = False
+            if hasattr(mouse, 'reset_agent_calibration'):
+                mouse.reset_agent_calibration()
+            _apply_motion_config(current_source)
+
+        if current_source == 'phone' and current_phone_server:
             phone_status = current_phone_server.get_status()
-            if phone_status in ('error', 'idle') or (phone_status == 'waiting' and current_phone_server.has_streamed):
-                print(f"[SYSTEM] Phone stream status is '{phone_status}' - switching engine back to webcam.")
+            phone_selected_at = capture_state.get("phone_selected_at")
+            phone_timed_out = (
+                not current_phone_server.has_streamed
+                and phone_selected_at is not None
+                and (time.perf_counter() - phone_selected_at) >= PHONE_CONNECT_TIMEOUT_SEC
+            )
+            phone_lost = (
+                phone_status in ('error', 'idle')
+                or (phone_status == 'waiting' and current_phone_server.has_streamed)
+                or (current_phone_server.has_streamed and not current_phone_server.capture.has_recent_frame)
+            )
+            if phone_lost or phone_timed_out:
+                reason = "timeout" if phone_timed_out else phone_status
+                print(f"[SYSTEM] Phone stream status is '{reason}' - switching engine back to webcam.")
                 try:
                     replacement_cap = _open_local_capture(source)
                     _swap_capture(capture_state, replacement_cap, 'webcam', None)
                     _has_face = False
                     _last_raw_dx = 0.0
                     _last_raw_dy = 0.0
-                    motion_engine.reset()
+                    # Full recalibration so parallax/gesture baselines
+                    # match the new camera's geometry/aspect ratio.
+                    parallax.is_calibrated = False
+                    mouse.reset_agent_calibration()
+                    _apply_motion_config('webcam')
+                    _last_active_source = 'webcam'
                     hud.show_message("PHONE LOST - USING WEBCAM", 75)
                 except Exception as exc:
                     print(f"[SYSTEM] Failed to fall back to webcam: {exc}")
@@ -457,6 +617,12 @@ def main():
         if new_result:
             _perf_new_results += 1
             _perf_mp_ms_accum += t_mp_ms
+            _live_mp_window_results += 1
+            live_window_elapsed = time.perf_counter() - _live_mp_window_start
+            if live_window_elapsed >= 1.0:
+                _live_mp_fps = _live_mp_window_results / live_window_elapsed
+                _live_mp_window_results = 0
+                _live_mp_window_start = time.perf_counter()
             _has_face = t_has_face
             _last_aspect_ratio = t_aspect
 
@@ -560,7 +726,8 @@ def main():
             try:
                 conn, _ = ipc_server.accept()
                 conn.setblocking(False)
-                if client_conn: client_conn.close()
+                if client_conn:
+                    client_conn.close()
                 client_conn = conn
             except BlockingIOError:
                 pass
@@ -569,11 +736,28 @@ def main():
                 try:
                     with tracking.lock:
                         _ipc_frame = tracking.frame
+                    with capture_state["lock"]:
+                        active_capture_source = capture_state["source"]
                     if _ipc_frame is not None:
                         frame_ui = _prepare_ipc_frame(_ipc_frame, 320, 180)
                         _, buffer = cv2.imencode('.jpg', frame_ui, [cv2.IMWRITE_JPEG_QUALITY, 40])
                         b64_str = base64.b64encode(buffer).decode('utf-8')
-                        payload = json.dumps({"frame": b64_str, "face_detected": _has_face}) + "\n"
+                        frame_h, frame_w = _ipc_frame.shape[:2]
+                        payload = json.dumps({
+                            "frame": b64_str,
+                            "telemetry": {
+                                "face_detected": _has_face,
+                                "tracking_fps": round(_live_mp_fps, 1),
+                                "performance_tier": tracking.performance_tier,
+                            },
+                            "face_detected": _has_face,
+                            "camera_meta": {
+                                "source": active_capture_source,
+                                "width": frame_w,
+                                "height": frame_h,
+                                "mp": round((frame_w * frame_h) / 1_000_000, 1),
+                            },
+                        }) + "\n"
                         client_conn.sendall(payload.encode('utf-8'))
                 except Exception:
                     client_conn.close()

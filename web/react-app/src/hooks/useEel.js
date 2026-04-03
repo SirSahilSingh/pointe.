@@ -58,6 +58,21 @@ export function onCameraMeta(cb) {
     console.log('[useEel] onCameraMeta callback set');
 }
 
+export function onEngineLaunched(cb) {
+    window._eelEngineLaunchedCallback = cb;
+    console.log('[useEel] onEngineLaunched callback set');
+}
+
+export function onEngineKilled(cb) {
+    window._eelEngineKilledCallback = cb;
+    console.log('[useEel] onEngineKilled callback set');
+}
+
+export function onPhoneDisconnected(cb) {
+    window._eelPhoneDisconnectedCallback = cb;
+    console.log('[useEel] onPhoneDisconnected callback set');
+}
+
 /**
  * Call an Eel-exposed Python function.
  * Returns null if Eel is not available.

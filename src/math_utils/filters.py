@@ -80,30 +80,6 @@ class MotionEngine:
     """
 
     def __init__(self):
-        cfg = getattr(settings, 'MOTION_ENGINE', {})
-
-        # Pre-filter: heavy EMA on raw yaw/pitch to kill noise
-        self.raw_smooth = cfg.get('raw_smooth', 0.08)
-
-        # Dead zone: tilt below this produces zero velocity
-        self.dead_zone = cfg.get('dead_zone', 0.08)
-
-        # Maximum tilt range (normalized, beyond dead zone)
-        # Tilts beyond this value are clamped to max_speed
-        self.max_tilt = cfg.get('max_tilt', 0.35)
-
-        # Maximum cursor speed in pixels/second
-        self.max_speed = cfg.get('max_speed', 900)
-
-        # Damping factor: how quickly velocity decays when returning to center
-        # 0.0 = instant stop, 1.0 = no damping. Lower = snappier stop.
-        self.damping = cfg.get('damping', 0.15)
-
-        # 1-Euro filter on output velocity for final smoothing
-        mincutoff = cfg.get('one_euro_mincutoff', 1.5)
-        beta = cfg.get('one_euro_beta', 0.3)
-        dcutoff = cfg.get('one_euro_dcutoff', 1.0)
-
         # Screen dimensions for edge protection and scaling
         import pyautogui
         self._screen_w, self._screen_h = pyautogui.size()
@@ -124,9 +100,9 @@ class MotionEngine:
         self._vx = 0.0
         self._vy = 0.0
 
-        # 1-Euro filters on velocity output
-        self._euro_vx = OneEuroFilter(now, 0.0, mincutoff, beta, dcutoff)
-        self._euro_vy = OneEuroFilter(now, 0.0, mincutoff, beta, dcutoff)
+        # 1-Euro filters are configured below from the active source profile.
+        self._euro_vx = None
+        self._euro_vy = None
 
         # Sensitivity
         self._sens_x = getattr(settings, 'SENSITIVITY_X', 2.5)
@@ -138,6 +114,37 @@ class MotionEngine:
         self._last_dt = 0.0
         self._last_dead_zone_x = True
         self._last_dead_zone_y = True
+
+        self._min_cutoff = 1.5
+        self._beta = 0.3
+        self._d_cutoff = 1.0
+
+        self.configure(getattr(settings, 'MOTION_ENGINE', {}), reset_state=True)
+
+    def configure(self, cfg, reset_state=True):
+        """Apply a full runtime config, optionally resetting filter state."""
+        # Pre-filter: heavy EMA on raw yaw/pitch to kill noise
+        self.raw_smooth = cfg.get('raw_smooth', 0.08)
+
+        # Dead zone: tilt below this produces zero velocity
+        self.dead_zone = cfg.get('dead_zone', 0.08)
+
+        # Maximum tilt range (normalized, beyond dead zone)
+        self.max_tilt = cfg.get('max_tilt', 0.35)
+
+        # Maximum cursor speed in pixels/second
+        self.max_speed = cfg.get('max_speed', 900)
+
+        # Damping factor: how quickly velocity decays when returning to center
+        self.damping = cfg.get('damping', 0.15)
+
+        # 1-Euro filter settings must track the active source config too.
+        self._min_cutoff = cfg.get('one_euro_mincutoff', 1.5)
+        self._beta = cfg.get('one_euro_beta', 0.3)
+        self._d_cutoff = cfg.get('one_euro_dcutoff', 1.0)
+
+        if reset_state:
+            self.reset()
 
     def _quadratic_speed(self, tilt):
         """Quadratic velocity curve with dead zone.
@@ -309,11 +316,6 @@ class MotionEngine:
         self._cursor_x = self._screen_w / 2.0
         self._cursor_y = self._screen_h / 2.0
 
-        cfg = getattr(settings, 'MOTION_ENGINE', {})
-        mincutoff = cfg.get('one_euro_mincutoff', 1.5)
-        beta = cfg.get('one_euro_beta', 0.3)
-        dcutoff = cfg.get('one_euro_dcutoff', 1.0)
-
-        self._euro_vx = OneEuroFilter(now, 0.0, mincutoff, beta, dcutoff)
-        self._euro_vy = OneEuroFilter(now, 0.0, mincutoff, beta, dcutoff)
+        self._euro_vx = OneEuroFilter(now, 0.0, self._min_cutoff, self._beta, self._d_cutoff)
+        self._euro_vy = OneEuroFilter(now, 0.0, self._min_cutoff, self._beta, self._d_cutoff)
 

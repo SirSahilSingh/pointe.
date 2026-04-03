@@ -40,15 +40,18 @@ current_camera_meta = {'source': 'webcam', 'width': settings.FRAME_WIDTH, 'heigh
 
 
 def _restart_preview_stream():
-    """Restart the dashboard preview loop with the currently selected source."""
-    global cap, preview_generation
+    """Invalidate the current preview worker and spawn a new one.
+
+    Idempotent for rapid repeated calls: each call bumps preview_generation
+    and spawns a worker, but only the latest-generation worker will pass
+    GATE 1 inside stream_camera() and actually acquire resources.  Intermediate
+    workers exit silently before opening any camera or IPC socket.
+
+    Resource cleanup (camera release, IPC socket close) is owned by the
+    dying worker — we do NOT release cap here.
+    """
+    global preview_generation
     preview_generation += 1
-    if cap:
-        try:
-            cap.release()
-        except Exception:
-            pass
-    cap = None
     eel.spawn(stream_camera)
 
 
@@ -58,6 +61,14 @@ def _open_local_camera():
     if not local_cap.isOpened():
         print(f"[stream_camera] Failed to open camera index {settings.CAMERA_INDEX}")
         return None
+    try:
+        local_cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    except Exception:
+        pass
+    try:
+        local_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    except Exception:
+        pass
     print(f"[stream_camera] Camera opened (index={settings.CAMERA_INDEX})")
     return local_cap
 
@@ -77,6 +88,24 @@ def _send_camera_meta(source, frame):
         current_camera_meta = meta
         try:
             eel.updateCameraMeta(meta)()
+        except Exception:
+            pass
+
+
+def _publish_camera_meta(meta):
+    global current_camera_meta
+    if not meta:
+        return
+    normalized = {
+        'source': meta.get('source', current_camera_meta.get('source', 'webcam')),
+        'width': int(meta.get('width', current_camera_meta.get('width', settings.FRAME_WIDTH))),
+        'height': int(meta.get('height', current_camera_meta.get('height', settings.FRAME_HEIGHT))),
+        'mp': float(meta.get('mp', current_camera_meta.get('mp', round((settings.FRAME_WIDTH * settings.FRAME_HEIGHT) / 1_000_000, 1)))),
+    }
+    if normalized != current_camera_meta:
+        current_camera_meta = normalized
+        try:
+            eel.updateCameraMeta(normalized)()
         except Exception:
             pass
 
@@ -159,6 +188,17 @@ def get_current_settings():
 
 
 @eel.expose
+def get_default_settings():
+    """Return canonical default settings (single source of truth).
+
+    Values here mirror the module-level defaults in settings.py.
+    The frontend Reset-to-Defaults button uses this endpoint so there
+    is no duplicated default-config object in JS.
+    """
+    return settings.get_default_ui_config()
+
+
+@eel.expose
 def get_system_info():
     """Returns system metadata for the UI footer and dashboard."""
     version = 'v1.0.0'
@@ -182,6 +222,81 @@ def get_user_name():
         return getpass.getuser()
     except Exception:
         return 'User'
+
+
+def _build_persist_config(config, override_cam_source=None):
+    """Convert frontend config dict into settings.py expected schema."""
+    selected_source = config.get('camera_source', getattr(settings, 'CAMERA_SOURCE', settings.CAMERA_INDEX))
+    cam_source = override_cam_source if override_cam_source is not None else selected_source
+
+    gesture_mapping = {
+        'left_click': config.get('lclick', 'left_wink'),
+        'right_click': config.get('rclick', 'right_wink'),
+        'double_click': config.get('dclick', 'pucker'),
+        'media_play_pause': config.get('media_pp', 'open_palm'),
+        'drag_drop': config.get('drag', 'jaw_drop'),
+        'scroll': config.get('scroll', 'both_closed'),
+    }
+
+    duplicate_assignments = {}
+    enabled_actions = ['left_click', 'right_click', 'double_click', 'media_play_pause', 'drag_drop']
+    if config.get('scroll_enabled', True):
+        enabled_actions.append('scroll')
+
+    for action in enabled_actions:
+        gesture = gesture_mapping.get(action, 'none')
+        if not gesture or gesture == 'none':
+            continue
+        duplicate_assignments.setdefault(gesture, []).append(action)
+
+    conflicts = {
+        gesture: actions
+        for gesture, actions in duplicate_assignments.items()
+        if len(actions) > 1
+    }
+    if conflicts:
+        conflict_text = ", ".join(
+            f"{gesture}: {', '.join(actions)}" for gesture, actions in conflicts.items()
+        )
+        raise ValueError(f"Duplicate gesture mappings are not allowed ({conflict_text})")
+    
+    return {
+        'CAMERA_INDEX': settings.CAMERA_INDEX,
+        'CAMERA_SOURCE': cam_source,
+        'FRAME_WIDTH': settings.FRAME_WIDTH,
+        'FRAME_HEIGHT': settings.FRAME_HEIGHT,
+        'SENSITIVITY_X': float(config.get('sens_x', 2.0)),
+        'SENSITIVITY_Y': float(config.get('sens_y', 2.0)),
+        'SMOOTHING': float(config.get('smoothing', 0.03)),
+        'ACCELERATION': float(config.get('acceleration', 1.6)),
+        'DEADZONE': float(config.get('deadzone', 0.03)),
+        'GESTURE_MAPPINGS': gesture_mapping,
+        'GESTURE_CALIBRATION': config.get('gesture_calibration', {}),
+        'MEDIA_AUTO_PAUSE': config.get('media_auto_pause', True),
+        'SCROLL_ENABLED': config.get('scroll_enabled', True),
+        'MOUSE_CONTROL_ENABLED': config.get('mouse_control_enabled', True),
+        'PINCH_COPY_PASTE': config.get('pinch_copy_paste', True),
+        'HAND_SWAP_WINDOW_SWITCH': config.get('hand_swap_window', True),
+        'FACE_LOCK_ENABLED': config.get('face_lock_enabled', False),
+        'FACE_LOCK_TIMEOUT': config.get('face_lock_timeout', 30),
+        'FACE_LOCK_ON_UNKNOWN': config.get('face_lock_on_unknown', False),
+    }
+
+
+@eel.expose
+def save_settings(config):
+    """Save settings and reload backend state. Does NOT launch engine."""
+    try:
+        persist = _build_persist_config(config)
+        settings.save_config(persist)
+        settings.load_config()
+        print("[SYSTEM] Settings successfully saved immediately.")
+        return {'success': True}
+    except Exception as e:
+        err = f"Failed to save settings: {e}"
+        print(f"[SYSTEM] Warning: {err}")
+        return {'success': False, 'error': err}
+
 
 
 @eel.expose
@@ -211,34 +326,11 @@ def save_and_launch(config):
     engine_phone_handoff_pending = engine_phone_source
 
     # Build config dict for JSON persistence
-    persist = {
-        'CAMERA_INDEX': settings.CAMERA_INDEX,
-        'CAMERA_SOURCE': cam_source,
-        'FRAME_WIDTH': settings.FRAME_WIDTH,
-        'FRAME_HEIGHT': settings.FRAME_HEIGHT,
-        'SENSITIVITY_X': float(config.get('sens_x', 2.0)),
-        'SENSITIVITY_Y': float(config.get('sens_y', 2.0)),
-        'SMOOTHING': float(config.get('smoothing', 0.03)),
-        'ACCELERATION': float(config.get('acceleration', 1.6)),
-        'DEADZONE': float(config.get('deadzone', 0.03)),
-        'GESTURE_MAPPINGS': {
-            'left_click': config.get('lclick', 'left_wink'),
-            'right_click': config.get('rclick', 'right_wink'),
-            'double_click': config.get('dclick', 'pucker'),
-            'media_play_pause': config.get('media_pp', 'open_palm'),
-            'drag_drop': config.get('drag', 'jaw_drop'),
-            'scroll': config.get('scroll', 'both_closed'),
-        },
-        'GESTURE_CALIBRATION': config.get('gesture_calibration', {}),
-        'MEDIA_AUTO_PAUSE': config.get('media_auto_pause', True),
-        'SCROLL_ENABLED': config.get('scroll_enabled', True),
-        'MOUSE_CONTROL_ENABLED': config.get('mouse_control_enabled', True),
-        'PINCH_COPY_PASTE': config.get('pinch_copy_paste', True),
-        'HAND_SWAP_WINDOW_SWITCH': config.get('hand_swap_window', True),
-        'FACE_LOCK_ENABLED': config.get('face_lock_enabled', False),
-        'FACE_LOCK_TIMEOUT': config.get('face_lock_timeout', 30),
-        'FACE_LOCK_ON_UNKNOWN': config.get('face_lock_on_unknown', False),
-    }
+    try:
+        persist = _build_persist_config(config, cam_source)
+    except ValueError as exc:
+        print(f"[SYSTEM] Launch blocked: {exc}")
+        return {'success': False, 'error': str(exc)}
 
     # Save to JSON and reload into the settings module
     try:
@@ -246,13 +338,6 @@ def save_and_launch(config):
         settings.load_config()
     except Exception as e:
         print(f"[SYSTEM] Warning: Failed to save config: {e}")
-
-    # STOP the local OpenCV capture so the engine can use the camera
-    # but DO NOT kill the stream_camera loop (is_running stays True)!
-    preview_generation += 1
-    if cap:
-        cap.release()
-        cap = None
 
     # Free up phone server ports for main.py to start its own server
     global phone_cam_server
@@ -267,15 +352,16 @@ def save_and_launch(config):
     project_dir = os.path.dirname(os.path.abspath(__file__))
     engine_process = subprocess.Popen([sys.executable, "main.py"], cwd=project_dir)
 
-    # Give engine time to start its phone camera server before IPC begins
-    if phone_cam_active:
-        time.sleep(1.0)
+    # Invalidate old preview worker and spawn a new IPC-oriented one.
+    # The new worker will see engine_process is alive and enter IPC mode.
+    _restart_preview_stream()
 
     # Notify the JS frontend
     try:
         eel.engine_launched()()
     except Exception:
         pass
+    return {'success': True}
 
 
 @eel.expose
@@ -289,11 +375,11 @@ def kill_engine():
             engine_process.wait(timeout=3)
         except subprocess.TimeoutExpired:
             engine_process.kill()
-        engine_process = None
         print("[SYSTEM] Engine terminated.")
 
         # If phone camera was active, restart the phone camera server
-        if engine_phone_source and phone_cam_server is None:
+        was_phone = engine_phone_source
+        if was_phone and phone_cam_server is None:
             time.sleep(1.0)  # Let engine release the ports
             phone_cam_server = PhoneCameraServer()
             phone_cam_server.start()
@@ -303,7 +389,12 @@ def kill_engine():
         engine_phone_source = False
         engine_phone_handoff_pending = False
 
-        # Restart dashboard camera stream
+        # Clear engine_process BEFORE restarting preview so the new
+        # worker sees no engine and enters webcam/phone mode, not IPC.
+        engine_process = None
+
+        # Invalidate old IPC worker and spawn a new webcam worker.
+        # The dying IPC worker cleans up its own socket.
         _restart_preview_stream()
 
         try:
@@ -313,6 +404,14 @@ def kill_engine():
         return True
     engine_process = None
     return False
+
+
+@eel.expose
+def get_engine_status():
+    """Return authoritative engine state for frontend hydration."""
+    if engine_process and engine_process.poll() is None:
+        return {'running': True, 'phone_source': engine_phone_source}
+    return {'running': False, 'phone_source': False}
 
 
 @eel.expose
@@ -484,46 +583,73 @@ def get_phone_camera_status():
 
 
 def stream_camera():
-    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server, engine_process, preview_generation
+    """Single-owner preview loop.
+
+    Each invocation snapshots preview_generation at birth.  After the initial
+    sleep the worker checks GATE 1 — if its generation is already stale
+    (another _restart_preview_stream() fired) it exits *before* opening any
+    resource.  Inside the main loop, GATE 2 checks prevent stale workers
+    from retrying IPC connections or camera opens.
+
+    Resource ownership: whatever THIS worker opens (webcam, IPC socket) it
+    cleans up on exit.  No other function releases these resources.
+    """
+    global is_running, cap, is_tutorial_mode, phone_cam_active, phone_cam_server
+    global engine_process, preview_generation
     global engine_phone_source, engine_phone_handoff_pending
+
     frame_send_count = 0
-    my_generation = preview_generation
+    my_generation = preview_generation  # snapshot at birth
 
     # Wait for browser to connect and React to mount before sending frames
-    print("[stream_camera] Waiting for browser connection...")
+    print(f"[stream_camera gen={my_generation}] Waiting for browser connection...")
     eel.sleep(2.0)
+
+    # ── GATE 1: stale? exit before touching anything ────────────────────
     if not is_running or my_generation != preview_generation:
+        print(f"[stream_camera gen={my_generation}] Stale at GATE 1, exiting.")
         return
-    print("[stream_camera] Starting camera stream...")
+
+    print(f"[stream_camera gen={my_generation}] Starting camera stream...")
 
     import socket
     import json
-    ipc_conn = None
+
+    # --- Resources owned by THIS worker (cleaned up on exit) ---
+    local_ipc_conn = None
+    local_cap = None  # webcam opened by this worker (NOT phone capture)
     buffer_str = ""
 
     try:
-        # Choose camera source
-        current_source = 'phone' if phone_cam_active and phone_cam_server else 'webcam'
-        if phone_cam_active and phone_cam_server:
+        # Choose camera source based on current state
+        engine_alive = engine_process and engine_process.poll() is None
+
+        if engine_alive:
+            # IPC mode — don't open any camera, receive frames from engine
+            print(f"[stream_camera gen={my_generation}] Entering IPC mode.")
+            cap = None
+        elif phone_cam_active and phone_cam_server:
+            # Phone mode — use phone server's capture surface
             cam = getattr(phone_cam_server, 'capture', None)
             if cam is None:
-                print("[stream_camera] Phone camera capture not ready, waiting...")
+                print(f"[stream_camera gen={my_generation}] Phone capture not ready, waiting...")
                 for _ in range(50):  # Wait up to 5s
                     eel.sleep(0.1)
+                    if my_generation != preview_generation:
+                        print(f"[stream_camera gen={my_generation}] Stale during phone wait, exiting.")
+                        return
                     cam = getattr(phone_cam_server, 'capture', None)
                     if cam is not None:
                         break
             cap = cam
-        elif not (engine_process and engine_process.poll() is None and engine_phone_source):
-            cap = _open_local_camera()
-            if cap is None:
-                return
         else:
-            cap = None
+            # Webcam mode — open local camera (this worker owns it)
+            local_cap = _open_local_camera()
+            if local_cap is None:
+                print(f"[stream_camera gen={my_generation}] Failed to open webcam, exiting.")
+                return
+            cap = local_cap
 
-        if cap is None:
-            print("[stream_camera] Waiting for engine IPC preview...")
-        
         detector = FaceMeshDetector()
 
         # Hand detector for palm detection
@@ -535,70 +661,83 @@ def stream_camera():
             min_tracking_confidence=0.5
         )
 
-        # We instantiate the MouseController just to use its detection math,
-        # we will NOT call mouse.move() here, so the actual cursor stays safe!
+        # MouseController for tutorial detection math only — no cursor moves
         mouse_referee = MouseController()
 
         while is_running and my_generation == preview_generation:
+            # ── GATE 2: check generation before any blocking call ────────
+
             # --- IPC FEED IF ENGINE IS RUNNING ---
             if engine_process and engine_process.poll() is None:
                 try:
-                    if not ipc_conn:
-                        ipc_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        ipc_conn.settimeout(0.5)  # Short timeout — don't freeze the UI
+                    if not local_ipc_conn:
+                        if my_generation != preview_generation:
+                            break  # GATE 2
+                        local_ipc_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        local_ipc_conn.settimeout(0.5)
                         try:
-                            ipc_conn.connect(('127.0.0.1', 11337))
-                            ipc_conn.setblocking(False)
+                            local_ipc_conn.connect(('127.0.0.1', 11337))
+                            local_ipc_conn.setblocking(False)
                             buffer_str = ""
-                            print("[stream_camera] IPC connected to engine.")
+                            print(f"[stream_camera gen={my_generation}] IPC connected to engine.")
                             engine_phone_handoff_pending = False
                         except (ConnectionRefusedError, OSError, socket.timeout):
-                            # Engine hasn't started IPC server yet, retry later
-                            ipc_conn.close()
-                            ipc_conn = None
+                            local_ipc_conn.close()
+                            local_ipc_conn = None
                             eel.sleep(0.3)
                             continue
-                    
+
                     try:
-                        data = ipc_conn.recv(4096 * 1024).decode('utf-8')
-                        if data: buffer_str += data
-                        else: raise ConnectionError()
+                        data = local_ipc_conn.recv(4096 * 1024).decode('utf-8')
+                        if data:
+                            buffer_str += data
+                        else:
+                            raise ConnectionError()
                     except BlockingIOError:
                         eel.sleep(0.01)
                         continue
-                        
+
                     if "\n" in buffer_str:
                         lines = buffer_str.split("\n")
-                        buffer_str = lines.pop() # Keep the remainder
+                        buffer_str = lines.pop()  # Keep the remainder
                         if lines:
                             latest_json = lines[-1]
                             if latest_json.strip():
                                 data_obj = json.loads(latest_json)
                                 eel.updateImage(data_obj["frame"])()
-                                eel.updateTelemetry(data_obj["face_detected"])()
+                                eel.updateTelemetry(data_obj.get("telemetry", data_obj["face_detected"]))()
+                                camera_meta = data_obj.get("camera_meta")
+                                if camera_meta:
+                                    _publish_camera_meta(camera_meta)
+                                    if engine_phone_source and camera_meta.get("source") != "phone":
+                                        engine_phone_source = False
+                                        engine_phone_handoff_pending = False
+                                        try:
+                                            eel.phone_camera_disconnected()()
+                                        except Exception:
+                                            pass
                 except Exception:
-                    if ipc_conn:
-                        ipc_conn.close()
-                        ipc_conn = None
+                    if local_ipc_conn:
+                        local_ipc_conn.close()
+                        local_ipc_conn = None
                     eel.sleep(0.2)
                 continue
 
-            # --- Engine died or was killed: clean up IPC and restart camera ---
-            # Only handle this if the engine WAS running (stale process ref) — not on fresh start
+            # --- Engine died or was killed: detect and notify ---
             if engine_process is not None and engine_process.poll() is not None:
-                # Clean up IPC
-                if ipc_conn:
+                # The engine exited unexpectedly.  Clean up IPC and notify UI.
+                if local_ipc_conn:
                     try:
-                        ipc_conn.close()
+                        local_ipc_conn.close()
                     except Exception:
                         pass
-                    ipc_conn = None
+                    local_ipc_conn = None
                     buffer_str = ""
 
-                # Auto-restart local camera
                 engine_process = None  # Clear stale reference
                 engine_phone_handoff_pending = False
-                print("[stream_camera] Engine exited — restarting local camera.")
+                print(f"[stream_camera gen={my_generation}] Engine exited — restarting local camera.")
+
                 if engine_phone_source and phone_cam_server is None:
                     time.sleep(0.5)
                     try:
@@ -608,7 +747,8 @@ def stream_camera():
                     except Exception:
                         pass
                 elif cap is None:
-                    cap = _open_local_camera()
+                    local_cap = _open_local_camera()
+                    cap = local_cap
                 engine_phone_source = False
                 try:
                     eel.engine_killed()()
@@ -623,14 +763,11 @@ def stream_camera():
             if phone_cam_active and phone_cam_server:
                 phone_status = phone_cam_server.get_status()
                 if phone_status in ('error', 'idle') or (phone_status == 'waiting' and phone_cam_server.has_streamed):
-                    print(f"[stream_camera] Phone stream status is '{phone_status}' - falling back to webcam preview.")
+                    print(f"[stream_camera gen={my_generation}] Phone '{phone_status}' — falling back to webcam.")
                     phone_cam_active = False
-                    try:
-                        cap.release()
-                    except Exception:
-                        pass
-                    cap = _open_local_camera()
-                    current_source = 'webcam'
+                    # Don't release phone capture — phone_cam_server owns it.
+                    local_cap = _open_local_camera()
+                    cap = local_cap
                     frame_send_count = 0
                     if cap is None:
                         eel.sleep(0.1)
@@ -645,10 +782,10 @@ def stream_camera():
             try:
                 success, frame, *_ = cap.read()
             except Exception as read_err:
-                print(f"[stream_camera] cap.read() exception: {read_err}")
+                print(f"[stream_camera gen={my_generation}] cap.read() exception: {read_err}")
                 eel.sleep(0.1)
                 continue
-            
+
             if not success:
                 eel.sleep(0.01)
                 continue
@@ -676,9 +813,8 @@ def stream_camera():
 
                     gestures = mouse_referee.detect_gestures(face, hand_results)
                     if gestures:
-                        # Send the first detected gesture to JS
                         eel.tutorial_event(gestures[0])()
-                        eel.sleep(0.5)  # 0.5s cooldown so it doesn't double-count a single wink!
+                        eel.sleep(0.5)
 
             # Resize and send frame to UI (lower res = much faster b64 transfer)
             display_frame = _prepare_display_frame(frame, 480, 270)
@@ -690,26 +826,36 @@ def stream_camera():
                 eel.updateTelemetry(face_detected)()
                 frame_send_count += 1
                 if frame_send_count == 1:
-                    print("[stream_camera] First frame sent to JS successfully!")
+                    print(f"[stream_camera gen={my_generation}] First frame sent to JS!")
                 elif frame_send_count % 100 == 0:
-                    print(f"[stream_camera] {frame_send_count} frames sent")
+                    print(f"[stream_camera gen={my_generation}] {frame_send_count} frames sent")
             except Exception as e:
                 if frame_send_count == 0:
-                    print(f"[stream_camera] Failed to send frame to JS: {e}")
-                pass
+                    print(f"[stream_camera gen={my_generation}] Failed to send frame: {e}")
 
-            # Yield briefly to let Eel send WebSockets without hogging CPU (0.005s = up to 200 FPS)
+            # Yield briefly to let Eel send WebSockets without hogging CPU
             eel.sleep(0.005)
 
-        if ipc_conn:
-            try:
-                ipc_conn.close()
-            except Exception:
-                pass
     except Exception as e:
-        print(f"[stream_camera] Fatal error: {e}")
+        print(f"[stream_camera gen={my_generation}] Fatal error: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        # ── Cleanup: release whatever THIS worker opened ────────────────
+        if local_ipc_conn:
+            try:
+                local_ipc_conn.close()
+            except Exception:
+                pass
+        if local_cap:
+            try:
+                local_cap.release()
+            except Exception:
+                pass
+            # Clear global cap only if it's still pointing to our local capture
+            if cap is local_cap:
+                cap = None
+        print(f"[stream_camera gen={my_generation}] Worker exited.")
 
 
 eel.spawn(stream_camera)

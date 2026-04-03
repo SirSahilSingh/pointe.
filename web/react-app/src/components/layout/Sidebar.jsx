@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
     DashboardSquare02Icon,
-    Search01Icon,
     DiscoverCircleIcon,
     Settings01Icon,
     LaptopPhoneSyncIcon,
@@ -27,14 +26,13 @@ const TRANSITION = {
 const FAST = { duration: 0.12, ease: [0.4, 0, 0.2, 1] }
 
 /* ═══════════════════════════════════════
-   MENU DATA
+   MENU DATA (Search removed, shortcuts added)
    ═══════════════════════════════════════ */
 const topMenu = [
-    { id: 'dashboard', label: 'Dashboard', icon: DashboardSquare02Icon },
-    { id: 'search', label: 'Search', icon: Search01Icon },
-    { id: 'controls', label: 'Controls', icon: DiscoverCircleIcon },
-    { id: 'settings', label: 'Settings', icon: Settings01Icon },
-    { id: 'phone-camera', label: 'Connect Phone', icon: LaptopPhoneSyncIcon },
+    { id: 'dashboard', label: 'Dashboard', icon: DashboardSquare02Icon, shortcut: 'Ctrl+D' },
+    { id: 'controls', label: 'Controls', icon: DiscoverCircleIcon, shortcut: 'Ctrl+Shift+C' },
+    { id: 'settings', label: 'Settings', icon: Settings01Icon, shortcut: 'Ctrl+S' },
+    { id: 'phone-camera', label: 'Connect Phone', icon: LaptopPhoneSyncIcon, shortcut: 'Ctrl+P' },
 ]
 
 const bottomMenu = [
@@ -43,9 +41,9 @@ const bottomMenu = [
 ]
 
 /* ═══════════════════════════════════════
-   TOOLTIP (collapsed hover)
+   TOOLTIP (collapsed hover — simple text)
    ═══════════════════════════════════════ */
-function Tooltip({ children, label, show }) {
+function Tooltip({ children, label, shortcut, show }) {
     return (
         <div style={{ position: 'relative' }}>
             {children}
@@ -74,9 +72,13 @@ function Tooltip({ children, label, show }) {
                             pointerEvents: 'none',
                             zIndex: 9999,
                             boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
                         }}
                     >
-                        {label}
+                        <span>{label}</span>
+                        {shortcut && <span style={{ color: '#8a8a95', fontSize: '11px', fontWeight: 500 }}>{shortcut}</span>}
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -184,19 +186,23 @@ function SidebarItem({ item, isActive, isOpen, onClick }) {
                 />
             </motion.span>
 
-            {/* Label — instant show/hide, no transition */}
+            {/* Label only */}
             {isOpen && (
-                <span
-                    style={{
-                        overflow: 'hidden',
-                        whiteSpace: 'nowrap',
-                        position: 'relative',
-                        zIndex: 1,
-                        marginLeft: '-2px',
-                    }}
-                >
-                    {item.label}
-                </span>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    whiteSpace: 'nowrap',
+                    position: 'relative',
+                    zIndex: 1,
+                    marginLeft: '-2px',
+                    paddingRight: '10px',
+                }}>
+                    <span>{item.label}</span>
+                </div>
             )}
 
             {/* Focus ring */}
@@ -216,7 +222,7 @@ function SidebarItem({ item, isActive, isOpen, onClick }) {
 
     if (!isOpen) {
         return (
-            <Tooltip label={item.label} show={showTooltip}>
+            <Tooltip label={item.label} shortcut={item.shortcut} show={showTooltip}>
                 <div style={{
                     display: 'flex',
                     justifyContent: 'center',

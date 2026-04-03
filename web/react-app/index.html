@@ -15,6 +15,9 @@
     window._eelTelemetryCallback = null;
     window._eelLightCallback = null;
     window._eelCameraMetaCallback = null;
+    window._eelEngineLaunchedCallback = null;
+    window._eelEngineKilledCallback = null;
+    window._eelPhoneDisconnectedCallback = null;
 
     eel.expose(updateImage);
     function updateImage(base64Img) {
@@ -34,6 +37,21 @@
     eel.expose(updateCameraMeta);
     function updateCameraMeta(meta) {
       if (window._eelCameraMetaCallback) window._eelCameraMetaCallback(meta);
+    }
+
+    eel.expose(engine_launched);
+    function engine_launched() {
+      if (window._eelEngineLaunchedCallback) window._eelEngineLaunchedCallback();
+    }
+
+    eel.expose(engine_killed);
+    function engine_killed() {
+      if (window._eelEngineKilledCallback) window._eelEngineKilledCallback();
+    }
+
+    eel.expose(phone_camera_disconnected);
+    function phone_camera_disconnected() {
+      if (window._eelPhoneDisconnectedCallback) window._eelPhoneDisconnectedCallback();
     }
   </script>
 </head>

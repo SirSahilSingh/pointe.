@@ -164,17 +164,8 @@ class FaceLockManager:
         return face_id, ''
 
     def get_registered_faces(self):
-        """Return list of {id, thumbnail} for all registered faces."""
-        import base64
-        faces = []
-        for face_id in self.registered_faces:
-            thumb_path = os.path.join(DATA_DIR, f'{face_id}.jpg')
-            thumb_b64 = ''
-            if os.path.exists(thumb_path):
-                with open(thumb_path, 'rb') as f:
-                    thumb_b64 = base64.b64encode(f.read()).decode('utf-8')
-            faces.append({'id': face_id, 'thumbnail': thumb_b64})
-        return faces
+        """Return privacy-safe face entries without exposing thumbnails."""
+        return [{'id': face_id} for face_id in self.registered_faces]
 
     def delete_face(self, face_id):
         """Delete a registered face by ID."""

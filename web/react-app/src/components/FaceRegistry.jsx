@@ -37,6 +37,8 @@ export default function FaceRegistry({ engineRunning }) {
         setShowModal(true)
     }
 
+    const formatFaceLabel = (index) => `Face ${index + 1}`
+
     return (
         <div className="flex flex-col gap-5 mt-6 pt-6 border-t border-[rgba(255,255,255,0.06)]">
             {/* Header */}
@@ -90,9 +92,20 @@ export default function FaceRegistry({ engineRunning }) {
                         if (face) {
                             return (
                                 <div key={face.id} className="relative group aspect-square rounded-2xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] transition-all hover:border-[rgba(255,255,255,0.15)]">
-                                    {face.thumbnail && (
-                                        <img src={`data:image/jpeg;base64,${face.thumbnail}`} className="w-full h-full object-cover" alt="Registered face" />
-                                    )}
+                                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))]">
+                                        <div className="w-12 h-12 rounded-full bg-[rgba(255,255,255,0.04)] flex items-center justify-center">
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5a5a65" strokeWidth="1.5">
+                                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                                <circle cx="12" cy="7" r="4" />
+                                            </svg>
+                                        </div>
+                                        <span className="text-[12px] font-medium text-[#c7c7cf]">
+                                            {formatFaceLabel(i)}
+                                        </span>
+                                        <span className="text-[10px] text-[#5a5a65]">
+                                            Registered
+                                        </span>
+                                    </div>
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col items-center justify-end pb-2">
                                         <button
                                             onClick={() => handleDelete(face.id)}

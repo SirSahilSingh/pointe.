@@ -1,10 +1,60 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PRESETS, DEFAULT_CUSTOM, GESTURES, GESTURE_ACTIONS, DEFAULT_GESTURE_CALIBRATION } from '../data/presets'
+import { callEel } from '../hooks/useEel'
 import FaceRegistry from '../components/FaceRegistry'
 import { MagicBento, MagicBentoCard } from '../components/animations/MagicBento'
 import '../components/animations/MagicBento.css'
+
+/* ═══════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════ */
+
+/** Convert UI-format calibration (holdDuration) to backend-format (hold_duration). */
+function calToBackend(uiCal) {
+    const out = {}
+    for (const [g, v] of Object.entries(uiCal)) {
+        out[g] = { threshold: v.threshold, hold_duration: v.holdDuration }
+    }
+    return out
+}
+
+/** Convert backend-format calibration (hold_duration) to UI-format (holdDuration). */
+function calToUI(backendCal) {
+    const out = {}
+    for (const [g, v] of Object.entries(backendCal || {})) {
+        out[g] = {
+            threshold: v.threshold ?? DEFAULT_GESTURE_CALIBRATION[g]?.threshold ?? 0.6,
+            holdDuration: v.hold_duration ?? v.holdDuration ?? DEFAULT_GESTURE_CALIBRATION[g]?.holdDuration ?? 0.2,
+        }
+    }
+    // Fill in missing gestures from defaults
+    for (const [g, def] of Object.entries(DEFAULT_GESTURE_CALIBRATION)) {
+        if (!out[g]) out[g] = { ...def }
+    }
+    return out
+}
+
+/** Recursively sort keys to ensure stable deep equality check. */
+function deepSortObject(obj) {
+    if (obj === null || typeof obj !== 'object') return obj
+    if (Array.isArray(obj)) return obj.map(deepSortObject)
+    
+    return Object.keys(obj).sort().reduce((acc, key) => {
+        acc[key] = deepSortObject(obj[key])
+        return acc
+    }, {})
+}
+
+/** Stable snapshot for dirty detection. */
+function makeSnapshot(cfg, gestCal) {
+    const merged = { ...cfg, gesture_calibration: calToBackend(gestCal) }
+    // Exclude transient keys that shouldn't affect dirty state
+    delete merged.camera_meta
+    delete merged.face_lock_faces
+    return JSON.stringify(deepSortObject(merged))
+}
 
 /* ═══════════════════════════════════════
    SHARED SUB-COMPONENTS
@@ -36,25 +86,25 @@ function SliderRow({ label, value, onChange, min, max, step = 0.01, suffix = '' 
     )
 }
 
-function SelectRow({ label, value, onChange, options }) {
+function SelectRow({ label, value, onChange, options, isConflict = false }) {
     const [open, setOpen] = useState(false)
     const triggerRef = useRef(null)
     const dropdownRef = useRef(null)
-    const [pos, setPos] = useState({ top: 0, left: 0 })
+    const [openUpward, setOpenUpward] = useState(false)
     const selectedLabel = options.find(o => o.value === value)?.label || value
 
-    const updatePos = useCallback(() => {
+    const updateDropdownDirection = useCallback(() => {
         if (!triggerRef.current) return
         const rect = triggerRef.current.getBoundingClientRect()
-        setPos({
-            top: rect.bottom + 4,
-            left: rect.right,
-        })
-    }, [])
+        const estimatedHeight = Math.min(options.length * 40 + 16, 260)
+        const spaceBelow = window.innerHeight - rect.bottom
+        const spaceAbove = rect.top
+        setOpenUpward(spaceBelow < estimatedHeight + 12 && spaceAbove > spaceBelow)
+    }, [options.length])
 
     useEffect(() => {
         if (!open) return
-        updatePos()
+        updateDropdownDirection()
         const handler = (e) => {
             if (triggerRef.current?.contains(e.target)) return
             if (dropdownRef.current?.contains(e.target)) return
@@ -62,7 +112,21 @@ function SelectRow({ label, value, onChange, options }) {
         }
         document.addEventListener('mousedown', handler)
         return () => document.removeEventListener('mousedown', handler)
-    }, [open, updatePos])
+    }, [open, updateDropdownDirection])
+
+    useEffect(() => {
+        if (!open) return
+        const handleViewportChange = () => {
+            updateDropdownDirection()
+            setOpen(false)
+        }
+        window.addEventListener('scroll', handleViewportChange, true)
+        window.addEventListener('resize', handleViewportChange)
+        return () => {
+            window.removeEventListener('scroll', handleViewportChange, true)
+            window.removeEventListener('resize', handleViewportChange)
+        }
+    }, [open, updateDropdownDirection])
 
     const dropdownMenu = (
         <AnimatePresence>
@@ -74,9 +138,10 @@ function SelectRow({ label, value, onChange, options }) {
                     exit={{ opacity: 0, scale: 0.96, y: -4 }}
                     transition={{ duration: 0.15, ease: [0.4, 0, 0.2, 1] }}
                     style={{
-                        position: 'fixed',
-                        top: pos.top,
-                        right: window.innerWidth - pos.left,
+                        position: 'absolute',
+                        top: openUpward ? 'auto' : 'calc(100% + 6px)',
+                        bottom: openUpward ? 'calc(100% + 6px)' : 'auto',
+                        right: 0,
                         width: 'auto',
                         minWidth: '140px',
                         maxHeight: '260px',
@@ -87,7 +152,7 @@ function SelectRow({ label, value, onChange, options }) {
                         border: '1px solid rgba(255,255,255,0.08)',
                         borderRadius: '8px',
                         boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-                        zIndex: 99999,
+                        zIndex: 60,
                         transformOrigin: 'top right',
                     }}
                 >
@@ -147,7 +212,7 @@ function SelectRow({ label, value, onChange, options }) {
             justifyContent: 'space-between',
             padding: '10px 0',
         }}>
-            <span style={{ fontSize: '13px', color: '#c0c0c8', fontWeight: 400 }}>{label}</span>
+            <span style={{ fontSize: '13px', color: isConflict ? '#f87171' : '#c0c0c8', fontWeight: 400 }}>{label}</span>
             <div style={{ position: 'relative' }}>
                 <button
                     ref={triggerRef}
@@ -158,12 +223,13 @@ function SelectRow({ label, value, onChange, options }) {
                         gap: '6px',
                         cursor: 'pointer',
                         padding: '6px 12px',
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.06)',
+                        background: isConflict ? 'rgba(248, 113, 113, 0.08)' : 'rgba(255,255,255,0.04)',
+                        border: isConflict ? '1px solid rgba(248, 113, 113, 0.4)' : '1px solid rgba(255,255,255,0.06)',
                         borderRadius: '8px',
-                        color: '#e0e0e0',
+                        color: isConflict ? '#f87171' : '#e0e0e0',
                         fontSize: '13px',
                         fontFamily: 'var(--font-sans)',
+                        transition: 'border-color 200ms, background 200ms',
                     }}
                 >
                     <span>{selectedLabel}</span>
@@ -179,7 +245,7 @@ function SelectRow({ label, value, onChange, options }) {
                         <polyline points="6 9 12 15 18 9" />
                     </svg>
                 </button>
-                {createPortal(dropdownMenu, document.body)}
+                {dropdownMenu}
             </div>
         </div>
     )
@@ -229,69 +295,406 @@ function SectionHeader({ icon, title, right }) {
 }
 
 /* ═══════════════════════════════════════
+   CONFIRM DIALOG (Save / Discard / Cancel)
+   ═══════════════════════════════════════ */
+function ConfirmDialog({ onSave, onDiscard, onCancel, hasDuplicates }) {
+    return createPortal(
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)',
+                zIndex: 10000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+            }}
+            onClick={onCancel}
+        >
+            <motion.div
+                initial={{ opacity: 0, scale: 0.94, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.94, y: 8 }}
+                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                onClick={e => e.stopPropagation()}
+                style={{
+                    width: '380px',
+                    padding: '24px',
+                    background: '#1c1c22',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '14px',
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '16px',
+                }}
+            >
+                <div>
+                    <h3 style={{
+                        fontSize: '15px',
+                        fontWeight: 600,
+                        color: '#f0f0f0',
+                        margin: 0,
+                        fontFamily: 'var(--font-sans)',
+                    }}>Unsaved Changes</h3>
+                    <p style={{
+                        fontSize: '13px',
+                        color: '#8a8a95',
+                        margin: '6px 0 0',
+                        fontFamily: 'var(--font-sans)',
+                        lineHeight: 1.5,
+                    }}>
+                        {hasDuplicates
+                            ? 'You have unsaved changes with duplicate gesture mappings. Duplicates must be resolved before saving.'
+                            : 'You have unsaved changes. What would you like to do?'}
+                    </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button
+                        onClick={onDiscard}
+                        style={{
+                            padding: '9px 18px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            background: 'transparent',
+                            color: '#f5f5f7',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-sans)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'border-color 150ms, background 150ms, transform 150ms',
+                        }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)'
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                            e.currentTarget.style.transform = 'translateY(-1px)'
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.transform = 'translateY(0)'
+                        }}
+                    >Discard</button>
+                    <button
+                        onClick={hasDuplicates ? undefined : onSave}
+                        disabled={hasDuplicates}
+                        style={{
+                            padding: '9px 18px',
+                            borderRadius: '10px',
+                            border: 'none',
+                            background: hasDuplicates ? '#cfcfd4' : '#ffffff',
+                            color: hasDuplicates ? '#8b8b93' : '#1c1c22',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-sans)',
+                            fontWeight: 700,
+                            cursor: hasDuplicates ? 'not-allowed' : 'pointer',
+                            transition: 'filter 150ms, transform 150ms',
+                        }}
+                        onMouseEnter={e => {
+                            if (!hasDuplicates) {
+                                e.currentTarget.style.filter = 'brightness(0.97)'
+                                e.currentTarget.style.transform = 'translateY(-1px)'
+                            }
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.filter = 'none'
+                            e.currentTarget.style.transform = 'translateY(0)'
+                        }}
+                    >Save</button>
+                </div>
+            </motion.div>
+        </motion.div>,
+        document.body
+    )
+}
+
+function ResetConfirmDialog({ onConfirm, onCancel }) {
+    return createPortal(
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{
+                position: 'fixed',
+                inset: 0,
+                background: 'rgba(0, 0, 0, 0.5)',
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)',
+                zIndex: 10000,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+            }}
+            onClick={onCancel}
+        >
+            <motion.div
+                initial={{ opacity: 0, scale: 0.94, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.94, y: 8 }}
+                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+                onClick={e => e.stopPropagation()}
+                style={{
+                    width: '390px',
+                    padding: '24px',
+                    background: '#1c1c22',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '14px',
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '16px',
+                }}
+            >
+                <div>
+                    <h3 style={{
+                        fontSize: '15px',
+                        fontWeight: 600,
+                        color: '#f0f0f0',
+                        margin: 0,
+                        fontFamily: 'var(--font-sans)',
+                    }}>Reset Settings?</h3>
+                    <p style={{
+                        fontSize: '13px',
+                        color: '#8a8a95',
+                        margin: '6px 0 0',
+                        fontFamily: 'var(--font-sans)',
+                        lineHeight: 1.5,
+                    }}>
+                        This will replace your current draft with the default settings. You can still review and save or cancel afterward.
+                    </p>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button
+                        onClick={onCancel}
+                        style={{
+                            padding: '9px 18px',
+                            borderRadius: '10px',
+                            border: 'none',
+                            background: '#34343d',
+                            color: '#f5f5f7',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-sans)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'filter 150ms, transform 150ms',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.08)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                        onMouseLeave={e => { e.currentTarget.style.filter = 'none'; e.currentTarget.style.transform = 'translateY(0)' }}
+                    >Cancel</button>
+                    <button
+                        onClick={onConfirm}
+                        style={{
+                            padding: '9px 18px',
+                            borderRadius: '10px',
+                            border: 'none',
+                            background: '#ff6e57',
+                            color: '#fff6f2',
+                            fontSize: '13px',
+                            fontFamily: 'var(--font-sans)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'filter 150ms, transform 150ms',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.05)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                        onMouseLeave={e => { e.currentTarget.style.filter = 'none'; e.currentTarget.style.transform = 'translateY(0)' }}
+                    >Reset to Defaults</button>
+                </div>
+            </motion.div>
+        </motion.div>,
+        document.body
+    )
+}
+
+/* ═══════════════════════════════════════
    SETTINGS MODAL
    ═══════════════════════════════════════ */
 export default function Settings({ config, setConfig, engineRunning, onClose }) {
+    // ── Draft state (never mutates parent config until Save) ──
+    const [draftConfig, setDraftConfig] = useState(() => {
+        const { camera_meta, face_lock_faces, ...rest } = config
+        return { ...rest }
+    })
+    const [draftGestureCalibration, setDraftGestureCalibration] = useState(() => calToUI(config.gesture_calibration))
+
+    // ── Backend defaults (single source of truth for Reset) ──
+    const backendDefaultsRef = useRef(null)
+    useEffect(() => {
+        callEel('get_default_settings').then(d => {
+            if (d) backendDefaultsRef.current = d
+        })
+    }, [])
+
+    // ── Snapshot at mount for dirty detection ──
+    const initialSnapshotRef = useRef(makeSnapshot(draftConfig, draftGestureCalibration))
+
+    // ── Derived: isDirty ──
+    const isDirty = useMemo(
+        () => makeSnapshot(draftConfig, draftGestureCalibration) !== initialSnapshotRef.current,
+        [draftConfig, draftGestureCalibration]
+    )
+
+    // ── Derived: duplicate gesture detection ──
+    const { duplicateGestures, hasDuplicates } = useMemo(() => {
+        const gestureKeys = ['lclick', 'rclick', 'dclick', 'media_pp', 'drag']
+        if (draftConfig.scroll_enabled) gestureKeys.push('scroll')
+
+        const gestureToActions = {}
+        for (const key of gestureKeys) {
+            const gesture = draftConfig[key] || 'none'
+            if (gesture === 'none') continue
+            if (!gestureToActions[gesture]) gestureToActions[gesture] = []
+            gestureToActions[gesture].push(key)
+        }
+
+        const dups = new Set()
+        for (const [gesture, actions] of Object.entries(gestureToActions)) {
+            if (actions.length >= 2) {
+                actions.forEach(a => dups.add(a))
+            }
+        }
+        return { duplicateGestures: dups, hasDuplicates: dups.size > 0 }
+    }, [draftConfig])
+
+    // ── Confirm dialog and save states ──
+    const [showConfirm, setShowConfirm] = useState(false)
+    const [showResetConfirm, setShowResetConfirm] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
+    const [saveError, setSaveError] = useState(null)
+    const modalRef = useRef(null)
+
+    // ── Preset state ──
     const [activePreset, setActivePreset] = useState('productivity')
     const [customValues, setCustomValues] = useState(DEFAULT_CUSTOM)
     const [presetOpen, setPresetOpen] = useState(false)
-    const [gestureCalibration, setGestureCalibration] = useState(() => {
-        // Initialize from backend config (hold_duration -> holdDuration for UI)
-        const backendCal = config.gesture_calibration || {}
-        if (Object.keys(backendCal).length > 0) {
-            const uiCal = {}
-            for (const [gesture, vals] of Object.entries(backendCal)) {
-                uiCal[gesture] = {
-                    threshold: vals.threshold ?? DEFAULT_GESTURE_CALIBRATION[gesture]?.threshold ?? 0.6,
-                    holdDuration: vals.hold_duration ?? vals.holdDuration ?? DEFAULT_GESTURE_CALIBRATION[gesture]?.holdDuration ?? 0.2,
-                }
-            }
-            // Fill in any missing gestures from defaults
-            for (const [gesture, defaults] of Object.entries(DEFAULT_GESTURE_CALIBRATION)) {
-                if (!uiCal[gesture]) uiCal[gesture] = { ...defaults }
-            }
-            return uiCal
-        }
-        return DEFAULT_GESTURE_CALIBRATION
-    })
     const [calibrationOpen, setCalibrationOpen] = useState(false)
-    const modalRef = useRef(null)
 
     // Determine active preset on load
     useEffect(() => {
         const matched = PRESETS.find(p =>
-            p.values.sensitivity === config.sens_x &&
-            p.values.smoothing === (config.smoothing || 0.03) &&
-            p.values.acceleration === (config.acceleration || 1.6) &&
-            p.values.deadzone === (config.deadzone || 0.03)
+            p.values.sensitivity === draftConfig.sens_x &&
+            p.values.smoothing === (draftConfig.smoothing || 0.03) &&
+            p.values.acceleration === (draftConfig.acceleration || 1.6) &&
+            p.values.deadzone === (draftConfig.deadzone || 0.03)
         )
         if (matched) {
             setActivePreset(matched.id)
         } else {
             setActivePreset('custom')
             setCustomValues({
-                sensitivity: config.sens_x || 2.5,
-                smoothing: config.smoothing || 0.03,
-                acceleration: config.acceleration || 1.6,
-                deadzone: config.deadzone || 0.03,
+                sensitivity: draftConfig.sens_x || 2.5,
+                smoothing: draftConfig.smoothing || 0.03,
+                acceleration: draftConfig.acceleration || 1.6,
+                deadzone: draftConfig.deadzone || 0.03,
             })
         }
     }, [])
 
-    // ESC to close
+    // ── Close logic (respects dirty state) ──
+    const handleRequestClose = useCallback(() => {
+        if (isDirty) {
+            setShowConfirm(true)
+        } else {
+            onClose()
+        }
+    }, [isDirty, onClose])
+
+    // ESC handler
     useEffect(() => {
         const handler = (e) => {
-            if (e.key === 'Escape') onClose()
+            if (e.key === 'Escape') {
+                e.preventDefault()
+                if (showConfirm) {
+                    setShowConfirm(false)
+                } else {
+                    handleRequestClose()
+                }
+            }
         }
         document.addEventListener('keydown', handler)
         return () => document.removeEventListener('keydown', handler)
-    }, [onClose])
+    }, [handleRequestClose, showConfirm])
 
     // Focus trap
     useEffect(() => {
         if (modalRef.current) modalRef.current.focus()
     }, [])
 
+    // ── Save (commits draft to parent and backend) ──
+    const handleSave = useCallback(async () => {
+        if (hasDuplicates || isSaving) return
+        
+        setIsSaving(true)
+        setSaveError(null)
+
+        const finalConfig = {
+            ...draftConfig,
+            gesture_calibration: calToBackend(draftGestureCalibration),
+        }
+
+        try {
+            const res = await callEel('save_settings', finalConfig)
+            if (res && res.success) {
+                setConfig(prev => ({ ...prev, ...finalConfig }))
+                initialSnapshotRef.current = makeSnapshot(finalConfig, draftGestureCalibration)
+                onClose()
+            } else {
+                setSaveError(res?.error || 'Failed to save settings')
+            }
+        } catch (err) {
+            setSaveError(err.toString())
+        } finally {
+            setIsSaving(false)
+        }
+    }, [draftConfig, draftGestureCalibration, hasDuplicates, isSaving, setConfig, onClose])
+
+    // ── Discard (closes without saving) ──
+    const handleDiscard = useCallback(() => {
+        setShowConfirm(false)
+        onClose()
+    }, [onClose])
+
+    // ── Reset to Defaults ──
+    const handleResetDefaults = useCallback(() => {
+        const defaults = backendDefaultsRef.current
+        if (!defaults) return
+
+        const { camera_meta, face_lock_faces, gesture_calibration, ...restDefaults } = defaults
+        setDraftConfig(prev => ({ ...prev, ...restDefaults }))
+        setDraftGestureCalibration(calToUI(gesture_calibration || {}))
+
+        // Update preset state
+        const matched = PRESETS.find(p =>
+            p.values.sensitivity === restDefaults.sens_x &&
+            p.values.smoothing === restDefaults.smoothing &&
+            p.values.acceleration === restDefaults.acceleration &&
+            p.values.deadzone === restDefaults.deadzone
+        )
+        if (matched) {
+            setActivePreset(matched.id)
+        } else {
+            setActivePreset('custom')
+            setCustomValues({
+                sensitivity: restDefaults.sens_x,
+                smoothing: restDefaults.smoothing,
+                acceleration: restDefaults.acceleration,
+                deadzone: restDefaults.deadzone,
+            })
+        }
+    }, [])
+
+    const handleRequestResetDefaults = useCallback(() => {
+        if (!backendDefaultsRef.current || isSaving) return
+        setShowResetConfirm(true)
+    }, [isSaving])
+
+    // ── Preset helpers (write to draft, not parent) ──
     const applyPreset = (presetId) => {
         setActivePreset(presetId)
         if (presetId === 'custom') {
@@ -300,7 +703,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
         }
         const preset = PRESETS.find(p => p.id === presetId)
         if (preset) {
-            setConfig(prev => ({
+            setDraftConfig(prev => ({
                 ...prev,
                 sens_x: preset.values.sensitivity,
                 sens_y: preset.values.sensitivity,
@@ -315,7 +718,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
     const applyCustom = (key, val) => {
         const updated = { ...customValues, [key]: val }
         setCustomValues(updated)
-        setConfig(prev => ({
+        setDraftConfig(prev => ({
             ...prev,
             sens_x: updated.sensitivity,
             sens_y: updated.sensitivity,
@@ -329,13 +732,22 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
         ? customValues
         : (PRESETS.find(p => p.id === activePreset)?.values || DEFAULT_CUSTOM)
 
+    // ── Backdrop click handler (blocks close when dirty) ──
+    const handleBackdropClick = useCallback(() => {
+        if (isDirty) {
+            // Do NOT close — block silent discard of unsaved changes
+            return
+        }
+        onClose()
+    }, [isDirty, onClose])
+
     return createPortal(
         <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            onClick={onClose}
+            onClick={handleBackdropClick}
             style={{
                 position: 'fixed',
                 inset: 0,
@@ -396,7 +808,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                         }}>Configure tracking behavior, gestures, and features.</p>
                     </div>
                     <button
-                        onClick={onClose}
+                        onClick={handleRequestClose}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -437,6 +849,36 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                     flexDirection: 'column',
                     gap: '24px',
                 }}>
+
+                    {/* ── DUPLICATE GESTURE WARNING ── */}
+                    <AnimatePresence>
+                        {hasDuplicates && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                style={{ overflow: 'hidden' }}
+                            >
+                                <div style={{
+                                    padding: '10px 14px',
+                                    borderRadius: '10px',
+                                    background: 'rgba(248, 113, 113, 0.06)',
+                                    border: '1px solid rgba(248, 113, 113, 0.2)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                }}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                                    </svg>
+                                    <span style={{ fontSize: '12px', color: '#f87171', fontWeight: 500 }}>
+                                        One gesture cannot be assigned to multiple actions. Resolve conflicts to save.
+                                    </span>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {/* ── SENSITIVITY PRESETS ── */}
                     <section>
@@ -589,7 +1031,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
 
                     {/* ── GESTURE MAPPINGS ── */}
                     <section style={{ position: 'relative' }}>
-                        {!config.mouse_control_enabled && (
+                        {!draftConfig.mouse_control_enabled && (
                             <div style={{
                                 position: 'absolute',
                                 inset: 0,
@@ -618,9 +1060,9 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                             </div>
                         )}
                         <div style={{
-                            opacity: !config.mouse_control_enabled ? 0.3 : 1,
-                            pointerEvents: !config.mouse_control_enabled ? 'none' : 'auto',
-                            filter: !config.mouse_control_enabled ? 'grayscale(1)' : 'none',
+                            opacity: !draftConfig.mouse_control_enabled ? 0.3 : 1,
+                            pointerEvents: !draftConfig.mouse_control_enabled ? 'none' : 'auto',
+                            filter: !draftConfig.mouse_control_enabled ? 'grayscale(1)' : 'none',
                         }}>
                             <SectionHeader
                                 icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M18 8V6a2 2 0 00-2-2H4a2 2 0 00-2 2v7a2 2 0 002 2h8" /><path d="M15 15l3.5 3.5M20 12a8 8 0 11-16 0 8 8 0 0116 0z" /></svg>}
@@ -631,9 +1073,10 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                                     <SelectRow
                                         key={action.id}
                                         label={action.label}
-                                        value={config[action.key] || 'none'}
-                                        onChange={v => setConfig(prev => ({ ...prev, [action.key]: v }))}
+                                        value={draftConfig[action.key] || 'none'}
+                                        onChange={v => setDraftConfig(prev => ({ ...prev, [action.key]: v }))}
                                         options={GESTURES}
+                                        isConflict={duplicateGestures.has(action.key)}
                                     />
                                 ))}
                             </div>
@@ -678,7 +1121,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                                     style={{ overflow: 'hidden' }}
                                 >
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '12px' }}>
-                                        {Object.entries(gestureCalibration).map(([gesture, cal]) => {
+                                        {Object.entries(draftGestureCalibration).map(([gesture, cal]) => {
                                             const gestureInfo = GESTURES.find(g => g.value === gesture)
                                             if (!gestureInfo) return null
                                             return (
@@ -696,16 +1139,10 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                                                         label="Threshold"
                                                         value={cal.threshold}
                                                         onChange={v => {
-                                                            setGestureCalibration(prev => {
-                                                                const updated = { ...prev, [gesture]: { ...prev[gesture], threshold: v } }
-                                                                // Sync back to parent config with holdDuration -> hold_duration
-                                                                const backendCal = {}
-                                                                for (const [g, vals] of Object.entries(updated)) {
-                                                                    backendCal[g] = { threshold: vals.threshold, hold_duration: vals.holdDuration }
-                                                                }
-                                                                setConfig(p => ({ ...p, gesture_calibration: backendCal }))
-                                                                return updated
-                                                            })
+                                                            setDraftGestureCalibration(prev => ({
+                                                                ...prev,
+                                                                [gesture]: { ...prev[gesture], threshold: v },
+                                                            }))
                                                         }}
                                                         min={0.3} max={0.9} step={0.05}
                                                     />
@@ -713,16 +1150,10 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                                                         label="Hold Duration"
                                                         value={cal.holdDuration}
                                                         onChange={v => {
-                                                            setGestureCalibration(prev => {
-                                                                const updated = { ...prev, [gesture]: { ...prev[gesture], holdDuration: v } }
-                                                                // Sync back to parent config with holdDuration -> hold_duration
-                                                                const backendCal = {}
-                                                                for (const [g, vals] of Object.entries(updated)) {
-                                                                    backendCal[g] = { threshold: vals.threshold, hold_duration: vals.holdDuration }
-                                                                }
-                                                                setConfig(p => ({ ...p, gesture_calibration: backendCal }))
-                                                                return updated
-                                                            })
+                                                            setDraftGestureCalibration(prev => ({
+                                                                ...prev,
+                                                                [gesture]: { ...prev[gesture], holdDuration: v },
+                                                            }))
                                                         }}
                                                         min={0.05} max={1.0} step={0.05}
                                                         suffix="s"
@@ -745,13 +1176,13 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
 
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <SettingRow label="Mouse Control" description="Enable head-tracking cursor movement">
-                                <Toggle value={config.mouse_control_enabled} onChange={v => setConfig(p => ({ ...p, mouse_control_enabled: v }))} />
+                                <Toggle value={draftConfig.mouse_control_enabled} onChange={v => setDraftConfig(p => ({ ...p, mouse_control_enabled: v }))} />
                             </SettingRow>
                             <SettingRow label="Scroll Mode" description="Enable both-eyes-closed scroll gesture">
-                                <Toggle value={config.scroll_enabled} onChange={v => setConfig(p => ({ ...p, scroll_enabled: v }))} />
+                                <Toggle value={draftConfig.scroll_enabled} onChange={v => setDraftConfig(p => ({ ...p, scroll_enabled: v }))} />
                             </SettingRow>
                             <AnimatePresence>
-                                {config.scroll_enabled && (
+                                {draftConfig.scroll_enabled && (
                                     <motion.div
                                         initial={{ height: 0, opacity: 0 }}
                                         animate={{ height: 'auto', opacity: 1 }}
@@ -766,21 +1197,22 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                                     >
                                         <SelectRow
                                             label="Scroll Gesture"
-                                            value={config.scroll || 'none'}
-                                            onChange={v => setConfig(prev => ({ ...prev, scroll: v }))}
+                                            value={draftConfig.scroll || 'none'}
+                                            onChange={v => setDraftConfig(prev => ({ ...prev, scroll: v }))}
                                             options={GESTURES}
+                                            isConflict={duplicateGestures.has('scroll')}
                                         />
                                     </motion.div>
                                 )}
                             </AnimatePresence>
                             <SettingRow label="Media Auto-Pause" description="Pause media when you look away">
-                                <Toggle value={config.media_auto_pause} onChange={v => setConfig(p => ({ ...p, media_auto_pause: v }))} />
+                                <Toggle value={draftConfig.media_auto_pause} onChange={v => setDraftConfig(p => ({ ...p, media_auto_pause: v }))} />
                             </SettingRow>
                             <SettingRow label="Pinch Copy/Paste" description="Copy on pinch, paste on release">
-                                <Toggle value={config.pinch_copy_paste} onChange={v => setConfig(p => ({ ...p, pinch_copy_paste: v }))} />
+                                <Toggle value={draftConfig.pinch_copy_paste} onChange={v => setDraftConfig(p => ({ ...p, pinch_copy_paste: v }))} />
                             </SettingRow>
                             <SettingRow label="Hand Swap Window Switch" description="Switch windows by swapping hands">
-                                <Toggle value={config.hand_swap_window} onChange={v => setConfig(p => ({ ...p, hand_swap_window: v }))} />
+                                <Toggle value={draftConfig.hand_swap_window} onChange={v => setDraftConfig(p => ({ ...p, hand_swap_window: v }))} />
                             </SettingRow>
                         </div>
                     </section>
@@ -794,21 +1226,21 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
 
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <SettingRow label="Face Lock" description="Lock the screen when your face is not detected">
-                                <Toggle value={config.face_lock_enabled} onChange={v => setConfig(p => ({ ...p, face_lock_enabled: v }))} />
+                                <Toggle value={draftConfig.face_lock_enabled} onChange={v => setDraftConfig(p => ({ ...p, face_lock_enabled: v }))} />
                             </SettingRow>
-                            {config.face_lock_enabled && (
+                            {draftConfig.face_lock_enabled && (
                                 <>
                                     <div style={{ padding: '8px 0' }}>
                                         <SliderRow
                                             label="Timeout"
-                                            value={config.face_lock_timeout || 30}
-                                            onChange={v => setConfig(p => ({ ...p, face_lock_timeout: v }))}
+                                            value={draftConfig.face_lock_timeout || 30}
+                                            onChange={v => setDraftConfig(p => ({ ...p, face_lock_timeout: v }))}
                                             min={5} max={120} step={5}
                                             suffix="s"
                                         />
                                     </div>
                                     <SettingRow label="Lock on Unknown Face" description="Lock when an unregistered face is detected">
-                                        <Toggle value={config.face_lock_on_unknown} onChange={v => setConfig(p => ({ ...p, face_lock_on_unknown: v }))} />
+                                        <Toggle value={draftConfig.face_lock_on_unknown} onChange={v => setDraftConfig(p => ({ ...p, face_lock_on_unknown: v }))} />
                                     </SettingRow>
                                     <div style={{ paddingTop: '8px' }}>
                                         <FaceRegistry engineRunning={engineRunning} />
@@ -817,8 +1249,190 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                             )}
                         </div>
                     </section>
+
+                    {/* ── RESET TO DEFAULTS ── */}
+                    <section style={{
+                        borderTop: '1px solid rgba(255,255,255,0.04)',
+                        paddingTop: '16px',
+                    }}>
+                        <button
+                            onClick={handleRequestResetDefaults}
+                            disabled={!backendDefaultsRef.current}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(255,255,255,0.06)',
+                                background: 'rgba(255,255,255,0.02)',
+                                color: backendDefaultsRef.current ? '#a0a0a8' : '#4a4a55',
+                                fontSize: '13px',
+                                fontWeight: 500,
+                                fontFamily: 'var(--font-sans)',
+                                cursor: backendDefaultsRef.current ? 'pointer' : 'not-allowed',
+                                transition: 'color 150ms, background 150ms, border-color 150ms',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                            }}
+                            onMouseEnter={e => {
+                                if (backendDefaultsRef.current) {
+                                    e.currentTarget.style.color = '#f0f0f0'
+                                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+                                }
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.color = backendDefaultsRef.current ? '#a0a0a8' : '#4a4a55'
+                                e.currentTarget.style.background = 'rgba(255,255,255,0.02)'
+                                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'
+                            }}
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8" />
+                                <path d="M21 3v5h-5" />
+                                <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16" />
+                                <path d="M3 21v-5h5" />
+                            </svg>
+                            Reset to Default Settings
+                        </button>
+                    </section>
+                </div>
+
+                {/* ── FOOTER (Save button) ── */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: '10px',
+                    padding: '14px 24px',
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    flexShrink: 0,
+                }}>
+                    {saveError && (
+                        <div style={{
+                            marginRight: 'auto',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(248, 113, 113, 0.08)',
+                            border: '1px solid rgba(248, 113, 113, 0.2)',
+                            color: '#f87171',
+                            padding: '6px 12px',
+                            borderRadius: '8px',
+                            fontSize: '11px',
+                            fontWeight: 500,
+                            fontFamily: 'var(--font-sans)',
+                        }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                            </svg>
+                            {saveError}
+                        </div>
+                    )}
+                    {isDirty && !saveError && (
+                        <span style={{
+                            fontSize: '11px',
+                            color: hasDuplicates ? '#f87171' : '#8a8a95',
+                            marginRight: 'auto',
+                            fontFamily: 'var(--font-sans)',
+                        }}>
+                            {hasDuplicates ? 'Resolve duplicate gestures to save' : 'Unsaved changes'}
+                        </span>
+                    )}
+                    <button
+                        onClick={handleRequestClose}
+                        disabled={isSaving}
+                        style={{
+                            padding: '9px 18px',
+                            borderRadius: '10px',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            background: 'transparent',
+                            color: isSaving ? '#6b6b75' : '#f5f5f7',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            fontFamily: 'var(--font-sans)',
+                            cursor: isSaving ? 'not-allowed' : 'pointer',
+                            transition: 'border-color 150ms, background 150ms, transform 150ms',
+                        }}
+                        onMouseEnter={e => {
+                            if (!isSaving) {
+                                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)'
+                                e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                                e.currentTarget.style.transform = 'translateY(-1px)'
+                            }
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.transform = 'translateY(0)'
+                        }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={hasDuplicates || !isDirty || isSaving}
+                        style={{
+                            padding: '9px 22px',
+                            borderRadius: '10px',
+                            border: 'none',
+                            background: (hasDuplicates || !isDirty || isSaving) ? '#cfcfd4' : '#ffffff',
+                            color: (hasDuplicates || !isDirty || isSaving) ? '#8b8b93' : '#1c1c22',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            fontFamily: 'var(--font-sans)',
+                            cursor: (hasDuplicates || !isDirty || isSaving) ? 'not-allowed' : 'pointer',
+                            transition: 'filter 150ms, transform 150ms',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                        }}
+                        onMouseEnter={e => {
+                            if (!hasDuplicates && isDirty && !isSaving) {
+                                e.currentTarget.style.filter = 'brightness(0.97)'
+                                e.currentTarget.style.transform = 'translateY(-1px)'
+                            }
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.filter = 'none'
+                            e.currentTarget.style.transform = 'translateY(0)'
+                        }}
+                    >
+                        {isSaving ? (
+                            <>
+                                <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m0 14v1m8-8h-1m-14 0H4m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707" />
+                                </svg>
+                                Saving...
+                            </>
+                        ) : 'Save'}
+                    </button>
                 </div>
             </motion.div>
+
+            {/* ── CONFIRM DIALOG ── */}
+            <AnimatePresence>
+                {showConfirm && (
+                    <ConfirmDialog
+                        hasDuplicates={hasDuplicates}
+                        onSave={() => { setShowConfirm(false); handleSave() }}
+                        onDiscard={handleDiscard}
+                        onCancel={() => setShowConfirm(false)}
+                    />
+                )}
+            </AnimatePresence>
+            <AnimatePresence>
+                {showResetConfirm && (
+                    <ResetConfirmDialog
+                        onConfirm={() => {
+                            setShowResetConfirm(false)
+                            handleResetDefaults()
+                        }}
+                        onCancel={() => setShowResetConfirm(false)}
+                    />
+                )}
+            </AnimatePresence>
         </motion.div>,
         document.body
     )

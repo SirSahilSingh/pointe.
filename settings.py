@@ -57,6 +57,82 @@ MOTION_ENGINE = {
     "one_euro_dcutoff": 1.0,
 }
 
+# Phone-specific overrides — heavier smoothing to absorb WebRTC jitter,
+# wider dead zone for noisier phone landmarks, lower max speed to prevent
+# noise amplification.  User-tunable via config.json.
+MOTION_ENGINE_PHONE = {
+    "raw_smooth": 0.10,
+    "dead_zone": 0.09,
+    "max_tilt": 0.35,
+    "max_speed": 900,
+    "damping": 0.15,
+    "one_euro_mincutoff": 1.5,
+    "one_euro_beta": 0.3,
+    "one_euro_dcutoff": 1.0,
+}
+
+# Canonical defaults snapshot captured before persisted overrides are loaded.
+# UI-facing default payloads must derive from this structure so Reset to
+# Defaults cannot drift from the module's actual built-in defaults.
+DEFAULT_SETTINGS = {
+    'CAMERA_INDEX': CAMERA_INDEX,
+    'CAMERA_SOURCE': CAMERA_SOURCE,
+    'FRAME_WIDTH': FRAME_WIDTH,
+    'FRAME_HEIGHT': FRAME_HEIGHT,
+    'SENSITIVITY_X': SENSITIVITY_X,
+    'SENSITIVITY_Y': SENSITIVITY_Y,
+    'SMOOTHING': SMOOTHING,
+    'ACCELERATION': ACCELERATION,
+    'DEADZONE': DEADZONE,
+    'GESTURE_MAPPINGS': dict(GESTURE_MAPPINGS),
+    'GESTURE_CALIBRATION': {
+        gesture: dict(values) for gesture, values in GESTURE_CALIBRATION.items()
+    },
+    'MEDIA_AUTO_PAUSE': MEDIA_AUTO_PAUSE,
+    'SCROLL_ENABLED': SCROLL_ENABLED,
+    'MOUSE_CONTROL_ENABLED': MOUSE_CONTROL_ENABLED,
+    'PINCH_COPY_PASTE': PINCH_COPY_PASTE,
+    'HAND_SWAP_WINDOW_SWITCH': HAND_SWAP_WINDOW_SWITCH,
+    'FACE_LOCK_ENABLED': FACE_LOCK_ENABLED,
+    'FACE_LOCK_TIMEOUT': FACE_LOCK_TIMEOUT,
+    'FACE_LOCK_ON_UNKNOWN': FACE_LOCK_ON_UNKNOWN,
+    'MOTION_ENGINE': dict(MOTION_ENGINE),
+    'MOTION_ENGINE_PHONE': dict(MOTION_ENGINE_PHONE),
+}
+
+def get_default_ui_config():
+    """Returns canonical default settings formatted for the frontend UI.
+    This serves as the single source of truth for both the Reset to Defaults
+    button and initial schema assumptions."""
+    defaults = DEFAULT_SETTINGS
+    return {
+        'sens_x': defaults['SENSITIVITY_X'],
+        'sens_y': defaults['SENSITIVITY_Y'],
+        'smoothing': defaults['SMOOTHING'],
+        'acceleration': defaults['ACCELERATION'],
+        'deadzone': defaults['DEADZONE'],
+        'lclick': defaults['GESTURE_MAPPINGS']['left_click'],
+        'rclick': defaults['GESTURE_MAPPINGS']['right_click'],
+        'dclick': defaults['GESTURE_MAPPINGS']['double_click'],
+        'media_pp': defaults['GESTURE_MAPPINGS']['media_play_pause'],
+        'drag': defaults['GESTURE_MAPPINGS']['drag_drop'],
+        'scroll': defaults['GESTURE_MAPPINGS']['scroll'],
+        'media_auto_pause': defaults['MEDIA_AUTO_PAUSE'],
+        'scroll_enabled': defaults['SCROLL_ENABLED'],
+        'mouse_control_enabled': defaults['MOUSE_CONTROL_ENABLED'],
+        'pinch_copy_paste': defaults['PINCH_COPY_PASTE'],
+        'hand_swap_window': defaults['HAND_SWAP_WINDOW_SWITCH'],
+        'face_lock_enabled': defaults['FACE_LOCK_ENABLED'],
+        'face_lock_timeout': defaults['FACE_LOCK_TIMEOUT'],
+        'face_lock_on_unknown': defaults['FACE_LOCK_ON_UNKNOWN'],
+        'gesture_calibration': {
+            gesture: dict(values)
+            for gesture, values in defaults['GESTURE_CALIBRATION'].items()
+        },
+        'camera_source': defaults['CAMERA_SOURCE'],
+    }
+
+
 
 # ─── Shared JSON Config Persistence ────────────────────────────────────────
 # Both dashboard.py and main.py import this module, so both see the same
@@ -150,7 +226,7 @@ _CONFIG_WHITELIST = {
     'MEDIA_AUTO_PAUSE', 'SCROLL_ENABLED', 'MOUSE_CONTROL_ENABLED',
     'PINCH_COPY_PASTE', 'HAND_SWAP_WINDOW_SWITCH',
     'FACE_LOCK_ENABLED', 'FACE_LOCK_TIMEOUT', 'FACE_LOCK_ON_UNKNOWN',
-    'MOTION_ENGINE',
+    'MOTION_ENGINE', 'MOTION_ENGINE_PHONE',
 }
 
 # Expected types for validation (key -> allowed types)
@@ -178,6 +254,7 @@ _CONFIG_TYPES = {
     'FACE_LOCK_TIMEOUT': (int, float),
     'FACE_LOCK_ON_UNKNOWN': (bool,),
     'MOTION_ENGINE': (dict,),
+    'MOTION_ENGINE_PHONE': (dict,),
 }
 
 

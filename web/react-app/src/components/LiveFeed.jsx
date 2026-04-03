@@ -5,13 +5,13 @@ import { JaliPattern } from './IndianOrnaments'
 export default function LiveFeed() {
     const [imageSrc, setImageSrc] = useState(null)
     const [faceDetected, setFaceDetected] = useState(false)
-    const [fps, setFps] = useState(0)
     // Non-visual stats kept in refs to prevent 60 state updates per second
-    const statsRef = useRef({ fps: 0, peakFps: 0, latency: 0, totalFrames: 0, confidence: 0, uptime: 0, faceDetected: false, cameraMp: 0, cameraSource: 'webcam', cameraResolution: null })
+    const statsRef = useRef({ fps: 0, previewFps: 0, trackingFps: 0, peakFps: 0, latency: 0, totalFrames: 0, confidence: 0, uptime: 0, faceDetected: false, cameraMp: 0, cameraSource: 'webcam', cameraResolution: null, performanceTier: 'normal' })
     const frameCount = useRef(0)
     const lastFpsTime = useRef(Date.now())
     const startTime = useRef(Date.now())
     const lastFrameTime = useRef(Date.now())
+    const staleFrameInterval = useRef(null)
 
     // Direct mutator function so we don't trigger React renders for invisible dashboard telemetry
     const updateTelemetry = () => {
@@ -34,19 +34,35 @@ export default function LiveFeed() {
 
             const elapsed = now - lastFpsTime.current
             if (elapsed >= 1000) {
-                const currentFps = Math.round((frameCount.current / elapsed) * 1000)
-                setFps(currentFps)
-                statsRef.current.fps = currentFps
-                statsRef.current.peakFps = Math.max(statsRef.current.peakFps, currentFps)
+                const currentPreviewFps = Math.round((frameCount.current / elapsed) * 1000)
+                statsRef.current.previewFps = currentPreviewFps
+                statsRef.current.fps = statsRef.current.trackingFps || currentPreviewFps
+                statsRef.current.peakFps = Math.max(statsRef.current.peakFps, statsRef.current.fps)
                 frameCount.current = 0
                 lastFpsTime.current = now
             }
             updateTelemetry()
         })
 
-        onTelemetry((detected) => {
+        onTelemetry((payload) => {
+            const detected = typeof payload === 'object' && payload !== null
+                ? !!payload.face_detected
+                : !!payload
             setFaceDetected(detected)
             statsRef.current.faceDetected = detected
+            if (payload && typeof payload === 'object') {
+                if (typeof payload.tracking_fps === 'number') {
+                    statsRef.current.trackingFps = payload.tracking_fps
+                    statsRef.current.fps = payload.tracking_fps
+                    statsRef.current.peakFps = Math.max(statsRef.current.peakFps, payload.tracking_fps)
+                }
+                if (payload.performance_tier) {
+                    statsRef.current.performanceTier = payload.performance_tier
+                }
+            } else {
+                statsRef.current.trackingFps = 0
+                statsRef.current.fps = statsRef.current.previewFps || 0
+            }
             statsRef.current.confidence = detected ? 92 + Math.floor(Math.random() * 7) : 0
             updateTelemetry()
         })
@@ -65,8 +81,24 @@ export default function LiveFeed() {
             updateTelemetry()
         }, 1000)
 
+        staleFrameInterval.current = setInterval(() => {
+            const idleMs = Date.now() - lastFrameTime.current
+            if (idleMs > 1500) {
+                statsRef.current.previewFps = 0
+                if (!statsRef.current.trackingFps) {
+                    statsRef.current.fps = 0
+                }
+                updateTelemetry()
+            }
+        }, 500)
+
         console.log('[LiveFeed] ✅ All callbacks subscribed');
-        return () => clearInterval(uptimeInterval)
+        return () => {
+            clearInterval(uptimeInterval)
+            if (staleFrameInterval.current) {
+                clearInterval(staleFrameInterval.current)
+            }
+        }
     }, [])
 
     const formatUptime = (secs) => {

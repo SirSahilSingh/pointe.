@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { callEel, exposeToEel } from './hooks/useEel'
+import { callEel, onEngineLaunched, onEngineKilled, onPhoneDisconnected } from './hooks/useEel'
 import Sidebar from './components/layout/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Settings from './pages/Settings'
 import Controls from './pages/Controls'
 import PhoneCamera from './pages/PhoneCamera'
-import Search from './pages/Search'
 
 const PHONE_CONNECTED_STATUSES = new Set(['connected', 'streaming', 'handoff', 'engine'])
 
@@ -45,9 +44,15 @@ export default function App() {
     callEel('get_current_settings').then(s => {
       if (s) setConfig(prev => ({ ...prev, ...s }))
     })
-    exposeToEel('engine_launched', () => setEngineRunning(true))
-    exposeToEel('engine_killed', () => setEngineRunning(false))
-    exposeToEel('phone_camera_disconnected', () => {
+    // Hydrate engine state from backend (self-healing if callback was missed)
+    callEel('get_engine_status').then(s => {
+      if (s?.running) setEngineRunning(true)
+    })
+    // Use synchronous window callbacks (set in index.html) to avoid race
+    onEngineLaunched(() => setEngineRunning(true))
+    onEngineKilled(() => setEngineRunning(false))
+    onPhoneDisconnected(() => {
+      previousPhoneStatus.current = 'idle'
       setConfig(prev => ({ ...prev, camera_source: 0 }))
       setPhoneToast({ type: 'warning', message: 'Phone camera disconnected. Switched back to webcam preview.' })
     })
@@ -114,10 +119,58 @@ export default function App() {
     setActivePage(id)
   }
 
+  // ── App-local navigation shortcuts ──
+  // Only fires inside the app window, never globally.
+  // Skips when user is typing in inputs/textareas/selects/contenteditable.
+  useEffect(() => {
+    const handler = (e) => {
+      // Skip when typing in form elements
+      const tag = document.activeElement?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return
+      if (document.activeElement?.isContentEditable) return
+
+      if (!e.ctrlKey && !e.metaKey) return
+      const key = e.key.toLowerCase()
+
+      // Ctrl+Shift+C → Controls
+      if (e.shiftKey && key === 'c') {
+        e.preventDefault()
+        handlePageChange('controls')
+        return
+      }
+
+      // Skip other Shift combos
+      if (e.shiftKey) return
+
+      // Ctrl+D → Dashboard
+      if (key === 'd') {
+        e.preventDefault()
+        handlePageChange('dashboard')
+        return
+      }
+
+      // Ctrl+S → Settings
+      if (key === 's') {
+        e.preventDefault()
+        handlePageChange('settings')
+        return
+      }
+
+      // Ctrl+P → Phone Camera
+      if (key === 'p') {
+        e.preventDefault()
+        handlePageChange('phone-camera')
+        return
+      }
+    }
+
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [])
+
   const renderPage = () => {
     switch (activePage) {
       case 'controls': return <Controls />
-      case 'search': return <Search />
       default: return (
         <Dashboard
           config={config}

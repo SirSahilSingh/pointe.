@@ -1,6 +1,6 @@
-opencv-python>=4.8.0
-mediapipe>=0.10.0
-numpy>=1.24.0
+opencv-python==4.11.0.86
+mediapipe==0.10.21
+numpy>=1.24.0,<2
 pyautogui>=0.9.54
 screeninfo>=0.8.1
 qrcode[pil]>=7.0
