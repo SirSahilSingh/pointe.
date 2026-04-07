@@ -515,7 +515,7 @@ function ResetConfirmDialog({ onConfirm, onCancel }) {
 /* ═══════════════════════════════════════
    SETTINGS MODAL
    ═══════════════════════════════════════ */
-export default function Settings({ config, setConfig, engineRunning, onClose }) {
+export default function Settings({ config, setConfig, engineRunning, focusSection, onClose }) {
     // ── Draft state (never mutates parent config until Save) ──
     const [draftConfig, setDraftConfig] = useState(() => {
         const { camera_meta, face_lock_faces, ...rest } = config
@@ -568,12 +568,21 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
     const [isSaving, setIsSaving] = useState(false)
     const [saveError, setSaveError] = useState(null)
     const modalRef = useRef(null)
+    const gestureMappingsRef = useRef(null)
 
     // ── Preset state ──
     const [activePreset, setActivePreset] = useState('productivity')
     const [customValues, setCustomValues] = useState(DEFAULT_CUSTOM)
     const [presetOpen, setPresetOpen] = useState(false)
     const [calibrationOpen, setCalibrationOpen] = useState(false)
+
+    useEffect(() => {
+        if (focusSection !== 'gesture-mappings') return
+        const timeout = setTimeout(() => {
+            gestureMappingsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 120)
+        return () => clearTimeout(timeout)
+    }, [focusSection])
 
     // Determine active preset on load
     useEffect(() => {
@@ -751,9 +760,9 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
             style={{
                 position: 'fixed',
                 inset: 0,
-                background: 'rgba(0, 0, 0, 0.6)',
-                backdropFilter: 'blur(7px)',
-                WebkitBackdropFilter: 'blur(7px)',
+                background: 'radial-gradient(circle at 22% 12%, rgba(255,64,111,0.13), transparent 30%), radial-gradient(circle at 78% 18%, rgba(79,124,255,0.11), transparent 32%), rgba(0, 0, 0, 0.68)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
                 zIndex: 9990,
                 display: 'flex',
                 alignItems: 'center',
@@ -773,28 +782,41 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                     maxHeight: '85vh',
                     display: 'flex',
                     flexDirection: 'column',
-                    background: '#18181c',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    boxShadow: '0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03)',
+                    background: 'linear-gradient(145deg, rgba(24,24,31,0.96), rgba(11,11,16,0.96))',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '22px',
+                    boxShadow: '0 28px 90px rgba(0,0,0,0.52), 0 0 34px rgba(255,64,111,0.08), 0 0 42px rgba(79,124,255,0.06)',
                     outline: 'none',
                     overflow: 'hidden',
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
+                <style>{`
+                    .settings-redesign-body section {
+                        border: 1px solid rgba(255,255,255,0.06);
+                        border-radius: 18px;
+                        padding: 18px;
+                        background:
+                            radial-gradient(circle at 0% 0%, rgba(255,64,111,0.06), transparent 28%),
+                            radial-gradient(circle at 100% 0%, rgba(79,124,255,0.05), transparent 28%),
+                            rgba(255,255,255,0.025);
+                        box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
+                    }
+                `}</style>
                 {/* ── HEADER ── */}
                 <div style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '20px 24px 16px',
-                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)',
                     flexShrink: 0,
+                    background: 'linear-gradient(90deg, rgba(255,64,111,0.08), rgba(79,124,255,0.04), transparent)',
                 }}>
                     <div>
                         <h2 style={{
-                            fontSize: '18px',
-                            fontWeight: 600,
+                            fontSize: '20px',
+                            fontWeight: 750,
                             color: '#f0f0f0',
                             fontFamily: 'var(--font-sans)',
                             margin: 0,
@@ -802,7 +824,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                         }}>Settings</h2>
                         <p style={{
                             fontSize: '12px',
-                            color: '#5a5a65',
+                            color: '#8a8a95',
                             margin: '2px 0 0',
                             fontFamily: 'var(--font-sans)',
                         }}>Configure tracking behavior, gestures, and features.</p>
@@ -840,7 +862,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                 </div>
 
                 {/* ── SCROLLABLE BODY ── */}
-                <div style={{
+                <div className="settings-redesign-body" style={{
                     flex: 1,
                     overflowY: 'auto',
                     overflowX: 'hidden',
@@ -1030,7 +1052,7 @@ export default function Settings({ config, setConfig, engineRunning, onClose }) 
                     </section>
 
                     {/* ── GESTURE MAPPINGS ── */}
-                    <section style={{ position: 'relative' }}>
+                    <section ref={gestureMappingsRef} style={{ position: 'relative' }}>
                         {!draftConfig.mouse_control_enabled && (
                             <div style={{
                                 position: 'absolute',

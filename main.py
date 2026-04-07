@@ -79,6 +79,8 @@ class _TrackingState:
         self.result_id = 0         # incremented on each new result
         self.mp_time_ms = 0.0      # last MediaPipe processing time
         self.performance_tier = 'normal'  # adaptive tier (normal/degraded)
+        self.low_light = False     # true only when frame brightness is actually low
+        self.brightness = 0.0      # latest tracking-frame brightness
 
 
 def _open_local_capture(source):
@@ -252,6 +254,8 @@ def _mediapipe_worker(capture_state, detector, hand_detector, state, running_fla
         # Use current tier for tracking resolution selection.
         # ONLY the input resolution to MediaPipe changes — MotionEngine is untouched.
         img_mp = _prepare_tracking_frame(img, source, tier=_current_tier)
+        brightness = float(cv2.mean(cv2.cvtColor(img_mp, cv2.COLOR_BGR2GRAY))[0])
+        low_light = brightness < 45.0
         rgb_img = cv2.cvtColor(img_mp, cv2.COLOR_BGR2RGB)
 
         t0 = time.perf_counter()
@@ -336,6 +340,8 @@ def _mediapipe_worker(capture_state, detector, hand_detector, state, running_fla
                 state.aspect_ratio = aspect
                 state.result_id += 1
                 state.mp_time_ms = mp_ms
+                state.low_light = low_light
+                state.brightness = brightness
         else:
             with state.lock:
                 state.has_face = False
@@ -344,6 +350,8 @@ def _mediapipe_worker(capture_state, detector, hand_detector, state, running_fla
                 state.frame = img
                 state.result_id += 1
                 state.mp_time_ms = mp_ms
+                state.low_light = low_light
+                state.brightness = brightness
 
         # Rate-limit: sleep to yield CPU/GIL to main thread and prevent
         # thermal throttling. This is the KEY fix for FPS degradation.
@@ -749,6 +757,8 @@ def main():
                                 "face_detected": _has_face,
                                 "tracking_fps": round(_live_mp_fps, 1),
                                 "performance_tier": tracking.performance_tier,
+                                "low_light": tracking.low_light,
+                                "brightness": round(tracking.brightness, 1),
                             },
                             "face_detected": _has_face,
                             "camera_meta": {
@@ -815,6 +825,7 @@ def main():
     if client_conn: client_conn.close()
     ipc_server.close()
     hand_detector.close()
+    hud.close()
     sys.exit(0)
 
 

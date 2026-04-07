@@ -12,6 +12,7 @@ const PHONE_CONNECTED_STATUSES = new Set(['connected', 'streaming', 'handoff', '
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsFocus, setSettingsFocus] = useState(null)
   const [phoneCameraOpen, setPhoneCameraOpen] = useState(false)
   const [engineRunning, setEngineRunning] = useState(false)
   const [phoneToast, setPhoneToast] = useState(null)
@@ -107,6 +108,7 @@ export default function App() {
 
   const handlePageChange = (id) => {
     if (id === 'settings') {
+      setSettingsFocus(null)
       setSettingsOpen(true)
       setPhoneCameraOpen(false)
       return
@@ -117,6 +119,12 @@ export default function App() {
       return
     }
     setActivePage(id)
+  }
+
+  const openSettingsSection = (section) => {
+    setSettingsFocus(section)
+    setSettingsOpen(true)
+    setPhoneCameraOpen(false)
   }
 
   // ── App-local navigation shortcuts ──
@@ -178,6 +186,7 @@ export default function App() {
           engineRunning={engineRunning}
           onLaunch={handleLaunch}
           onKill={handleKill}
+          onCustomizeMappings={() => openSettingsSection('gesture-mappings')}
         />
       )
     }
@@ -202,7 +211,11 @@ export default function App() {
             config={config}
             setConfig={setConfig}
             engineRunning={engineRunning}
-            onClose={() => setSettingsOpen(false)}
+            focusSection={settingsFocus}
+            onClose={() => {
+              setSettingsOpen(false)
+              setSettingsFocus(null)
+            }}
           />
         )}
       </AnimatePresence>

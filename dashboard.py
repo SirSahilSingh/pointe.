@@ -39,6 +39,31 @@ preview_generation = 0  # Monotonic token so only the newest preview loop stays 
 current_camera_meta = {'source': 'webcam', 'width': settings.FRAME_WIDTH, 'height': settings.FRAME_HEIGHT, 'mp': round((settings.FRAME_WIDTH * settings.FRAME_HEIGHT) / 1_000_000, 1)}
 
 
+def _terminate_engine_process(proc, timeout=3):
+    """Stop the engine and any child HUD processes it spawned."""
+    if not proc or proc.poll() is not None:
+        return
+
+    if os.name == 'nt':
+        try:
+            subprocess.run(
+                ['taskkill', '/PID', str(proc.pid), '/T', '/F'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            proc.wait(timeout=timeout)
+            return
+        except Exception as exc:
+            print(f"[SYSTEM] taskkill failed, falling back to terminate(): {exc}")
+
+    try:
+        proc.terminate()
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
 def _restart_preview_stream():
     """Invalidate the current preview worker and spawn a new one.
 
@@ -306,13 +331,7 @@ def save_and_launch(config):
 
     # Kill any existing engine process first to free the IPC port
     if engine_process and engine_process.poll() is None:
-        try:
-            engine_process.terminate()
-            engine_process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            engine_process.kill()
-        except Exception:
-            pass
+        _terminate_engine_process(engine_process)
         engine_process = None
         time.sleep(0.5)  # Let OS release the port
 
@@ -370,11 +389,7 @@ def kill_engine():
     global engine_process, is_running, phone_cam_server, phone_cam_active
     global engine_phone_source, engine_phone_handoff_pending
     if engine_process and engine_process.poll() is None:
-        try:
-            engine_process.terminate()
-            engine_process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            engine_process.kill()
+        _terminate_engine_process(engine_process)
         print("[SYSTEM] Engine terminated.")
 
         # If phone camera was active, restart the phone camera server
