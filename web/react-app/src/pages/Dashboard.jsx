@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { callEel } from '../hooks/useEel'
 import LiveFeed from '../components/LiveFeed'
@@ -303,7 +303,7 @@ function GestureMappingsPanel({ mappings, onCustomizeMappings }) {
     return (
         <GlassCard style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px', minHeight: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 550, color: 'var(--color-text-primary)', fontFamily: "'Poppins', var(--font-sans)" }}>
                     Gesture Mappings
                 </h3>
                 <button type="button" onClick={onCustomizeMappings} style={{
@@ -372,7 +372,7 @@ function QuickSettingsPanel({ settings, setConfig }) {
     return (
         <GlassCard style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>Quick Settings</h3>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 550, color: 'var(--color-text-primary)', fontFamily: "'Poppins', var(--font-sans)" }}>Quick Settings</h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {items.map(item => (
@@ -424,7 +424,7 @@ function TipsPanel() {
     return (
         <GlassCard style={{ padding: '18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: 'var(--font-sans)' }}>Tips & Tricks</h3>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 550, color: 'var(--color-text-primary)', fontFamily: "'Poppins', var(--font-sans)" }}>Tips & Tricks</h3>
                 <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>1 / 3</span>
             </div>
             <TipsCarousel />
@@ -630,7 +630,7 @@ export default function Dashboard({ config: settings, setConfig, engineRunning, 
                             {formattedDate}
                         </div>
                         <h2 style={{
-                            fontFamily: "'Google Sans Flex', 'Google Sans', var(--font-display)",
+                            fontFamily: "'Sora', var(--font-display)",
                             fontSize: '42px',
                             fontWeight: 500,
                             letterSpacing: '-0.035em',

@@ -148,7 +148,7 @@ function SelectRow({ label, value, onChange, options, isConflict = false }) {
                         overflowY: 'auto',
                         overflowX: 'hidden',
                         padding: '4px',
-                        background: '#1a1a1f',
+                        background: '#0c0c0c',
                         border: '1px solid rgba(255,255,255,0.08)',
                         borderRadius: '8px',
                         boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
@@ -326,7 +326,7 @@ function ConfirmDialog({ onSave, onDiscard, onCancel, hasDuplicates }) {
                 style={{
                     width: '380px',
                     padding: '24px',
-                    background: '#1c1c22',
+                    background: '#0c0c0c',
                     border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: '14px',
                     boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
@@ -443,7 +443,7 @@ function ResetConfirmDialog({ onConfirm, onCancel }) {
                 style={{
                     width: '390px',
                     padding: '24px',
-                    background: '#1c1c22',
+                    background: '#0c0c0c',
                     border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: '14px',
                     boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
@@ -477,7 +477,7 @@ function ResetConfirmDialog({ onConfirm, onCancel }) {
                             padding: '9px 18px',
                             borderRadius: '10px',
                             border: 'none',
-                            background: '#34343d',
+                            background: '#1a1a1a',
                             color: '#f5f5f7',
                             fontSize: '13px',
                             fontFamily: 'var(--font-sans)',
@@ -760,9 +760,9 @@ export default function Settings({ config, setConfig, engineRunning, focusSectio
             style={{
                 position: 'fixed',
                 inset: 0,
-                background: 'radial-gradient(circle at 22% 12%, rgba(255,64,111,0.13), transparent 30%), radial-gradient(circle at 78% 18%, rgba(79,124,255,0.11), transparent 32%), rgba(0, 0, 0, 0.68)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
+                background: 'rgba(0, 0, 0, 0.65)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
                 zIndex: 9990,
                 display: 'flex',
                 alignItems: 'center',
@@ -782,10 +782,10 @@ export default function Settings({ config, setConfig, engineRunning, focusSectio
                     maxHeight: '85vh',
                     display: 'flex',
                     flexDirection: 'column',
-                    background: 'linear-gradient(145deg, rgba(24,24,31,0.96), rgba(11,11,16,0.96))',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: '#000000',
+                    border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: '22px',
-                    boxShadow: '0 28px 90px rgba(0,0,0,0.52), 0 0 34px rgba(255,64,111,0.08), 0 0 42px rgba(79,124,255,0.06)',
+                    boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
                     outline: 'none',
                     overflow: 'hidden',
                 }}
@@ -796,11 +796,8 @@ export default function Settings({ config, setConfig, engineRunning, focusSectio
                         border: 1px solid rgba(255,255,255,0.06);
                         border-radius: 18px;
                         padding: 18px;
-                        background:
-                            radial-gradient(circle at 0% 0%, rgba(255,64,111,0.06), transparent 28%),
-                            radial-gradient(circle at 100% 0%, rgba(79,124,255,0.05), transparent 28%),
-                            rgba(255,255,255,0.025);
-                        box-shadow: inset 0 1px 0 rgba(255,255,255,0.045);
+                        background: #0c0c0c;
+                        box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
                     }
                 `}</style>
                 {/* ── HEADER ── */}
@@ -809,9 +806,9 @@ export default function Settings({ config, setConfig, engineRunning, focusSectio
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '20px 24px 16px',
-                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    borderBottom: '1px solid rgba(255,255,255,0.06)',
                     flexShrink: 0,
-                    background: 'linear-gradient(90deg, rgba(255,64,111,0.08), rgba(79,124,255,0.04), transparent)',
+                    background: 'transparent',
                 }}>
                     <div>
                         <h2 style={{

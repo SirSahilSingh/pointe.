@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@300;400;500;600;700&family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap');
 @import url('https://fonts.cdnfonts.com/css/omnes');
 @import "tailwindcss";
 
@@ -7,7 +7,7 @@
    Royal Indian-inspired theme with clean modern lines
    ═══════════════════════════════════════ */
 @theme {
-  --color-bg-base: #141418;
+  --color-bg-base: #000000;
   --color-bg-elevated: #1a1a1f;
   --color-bg-surface: #18181b;
   --color-bg-surface-hover: #1f1f23;
@@ -21,10 +21,10 @@
   --color-border-hover: rgba(255, 255, 255, 0.1);
   --color-border-active: rgba(255, 255, 255, 0.15);
 
-  --color-text-primary: #f0f0f0;
+  --color-text-primary: #d4d4d8;
   --color-text-secondary: #a0a0a8;
   --color-text-muted: #5a5a65;
-  --color-text-accent: #ffffff;
+  --color-text-accent: #f0f0f0;
 
   --color-accent: #e5e5e5;
   --color-accent-dim: rgba(255, 255, 255, 0.08);
@@ -33,8 +33,8 @@
   --color-warning: #fbbf24;
   --color-error: #f87171;
 
-  --font-sans: 'Google Sans Flex', 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display: 'Google Sans Flex', 'Poppins', sans-serif;
+  --font-sans: 'Inter', 'Google Sans Flex', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Inter', 'Google Sans Flex', sans-serif;
   --font-mono: 'JetBrains Mono', 'Consolas', monospace;
 }
 
