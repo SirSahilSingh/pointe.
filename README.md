@@ -1,4 +1,4 @@
-# Pointe
+# Pointe.
 
 Control your PC with head movements and facial gestures. No special hardware, no wearables - just your webcam or phone camera.
 
